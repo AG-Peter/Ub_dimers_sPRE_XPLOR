@@ -335,99 +335,77 @@ def prepare_pdb_for_gmx(file, verification=None):
         for line in leading:
             f.write(line)
     
-from tempfile import gettempdir
-from matplotlib.lines import Line2D
-from matplotlib.patches import Rectangle
-import biotite
-import biotite.structure as struc
-import biotite.structure.io.mmtf as mmtf
-import biotite.sequence as seq
-import biotite.sequence.graphics as graphics
-import biotite.sequence.io.genbank as gb
-import biotite.database.rcsb as rcsb
-import biotite.database.entrez as entrez
-import biotite.application.dssp as dssp
+def get_prox_dist_from_mdtraj(frame, traj_file, top_file, frame_no, testing=False,
+                             pdb_file='values_from_every_frame/tmp_full_frame_lyq_and_glq_removed_fixed_algo.pdb'):
+    data = {'traj_file': traj_file, 'top_file': top_file, 'frame': frame_no, 'time': frame.time[0]}
+    column_names = get_column_names_from_pdb()
+    columns = {column_name: np.nan for column_name in column_names}
+    data.update(columns)
+    series = pd.Series(data=data)
+    
+    # [y for x in non_flat for y in x]
+    substrings = [item for part in traj_file.split('/') for item in part.split('_')]
+    ubq_site = substrings[[substr.startswith('k') for substr in substrings].index(True)]
+    
+    should_be_residue_number = traj.n_residues
+    
+    # get data
+    sPRE_tbl = f'values_from_every_frame/diUbi_{ubq_site}_empty_sPRE_prox_in.tbl'
+    relax_600_tbl = f'values_from_every_frame/diUbi_empty_600_mhz_relaxratiopot_prox_in.tbl'
+    relax_800_tbl = f'values_from_every_frame/diUbi_empty_800_mhz_relaxratiopot_prox_in.tbl'
+    
+    cmd = f"./single_struct_restraints.py -pdb {pdb_file} -spre_tbl {sPRE_tbl} -relax_600_tbl {relax_600_tbl} -relax_800_tbl {relax_800_tbl}"
+    if testing:
+        cmd += ' -testing'
+    process = subprocess.Popen(cmd, stderr=subprocess.PIPE, stdout=subprocess.PIPE, shell=True)
+    out, err = process.communicate()
+    return_code = process.poll()
+    out = out.decode(sys.stdin.encoding)
+    err = err.decode(sys.stdin.encoding)
+    out = out.split('findImportantAtoms: done')[1]
+    out = ast.literal_eval(out)
 
-class HelixPlotter(graphics.FeaturePlotter):
+    for o in out:
+        resname = traj.top.residue(int(o[1]) - 1)
+        if o[0] == 'rrp600':
+            series[f'proximal {resname} 15N_relax_600'] = o[2]
+        elif o[0] == 'rrp800':
+            series[f'proximal {resname} 15N_relax_800'] = o[2]
+        elif o[0] == 'psol':
+            series[f'proximal {resname} sPRE'] = o[2]
 
-    def __init__(self):
-        pass
+    if series['proximal ILE3 sPRE'] == 0 and series['proximal PHE4 sPRE'] == 0:
+        print(cmd)
+        print(out)
+        print(psol)
+        raise Exception(f"This psol value should not be 0. Traj is {traj_file}, frame is {frame_no}")
 
-    # Check whether this class is applicable for drawing a feature
-    def matches(self, feature):
-        if feature.key == "SecStr":
-            if "sec_str_type" in feature.qual:
-                if feature.qual["sec_str_type"] == "helix":
-                    return True
-        return False
+    sPRE_tbl = sPRE_tbl.replace('prox', 'dist')
+    relax_600_tbl = relax_600_tbl.replace('prox', 'dist')
+    relax_800_tbl = relax_800_tbl.replace('prox', 'dist')
 
-    # The drawing function itself
-    def draw(self, axes, feature, bbox, loc, style_param):
-        # Approx. 1 turn per 3.6 residues to resemble natural helix
-        n_turns = np.ceil((loc.last - loc.first + 1) / 3.6)
-        x_val = np.linspace(0, n_turns * 2*np.pi, 100)
-        # Curve ranges from 0.3 to 0.7
-        y_val = (-0.4*np.sin(x_val) + 1) / 2
+    cmd = f"./single_struct_restraints.py -pdb {pdb_file} -spre_tbl {sPRE_tbl} -relax_600_tbl {relax_600_tbl} -relax_800_tbl {relax_800_tbl}"
+    if testing:
+        cmd += ' -testing'
+    process = subprocess.Popen(cmd, stderr=subprocess.PIPE, stdout=subprocess.PIPE, shell=True)
+    out, err = process.communicate()
+    return_code = process.poll()
+    out = out.decode(sys.stdin.encoding)
+    err = err.decode(sys.stdin.encoding)
+    out = out.split('findImportantAtoms: done')[1]
+    out = ast.literal_eval(out)
 
-        # Transform values for correct location in feature map
-        x_val *= bbox.width / (n_turns * 2*np.pi)
-        x_val += bbox.x0
-        y_val *= bbox.height
-        y_val += bbox.y0
-
-        # Draw white background to overlay the guiding line
-        background = Rectangle(
-            bbox.p0, bbox.width, bbox.height, color="white", linewidth=0
-        )
-        axes.add_patch(background)
-        axes.plot(
-            x_val, y_val, linewidth=2, color=biotite.colors["dimgreen"]
-        )
-
-
-class SheetPlotter(graphics.FeaturePlotter):
-
-    def __init__(self, head_width=0.8, tail_width=0.5):
-        self._head_width = head_width
-        self._tail_width = tail_width
-
-
-    def matches(self, feature):
-        if feature.key == "SecStr":
-            if "sec_str_type" in feature.qual:
-                if feature.qual["sec_str_type"] == "sheet":
-                    return True
-        return False
-
-    def draw(self, axes, feature, bbox, loc, style_param):
-        x = bbox.x0
-        y = bbox.y0 + bbox.height/2
-        dx = bbox.width
-        dy = 0
-
-        if  loc.defect & seq.Location.Defect.MISS_RIGHT:
-            # If the feature extends into the prevoius or next line
-            # do not draw an arrow head
-            draw_head = False
-        else:
-            draw_head = True
-
-        axes.add_patch(biotite.AdaptiveFancyArrow(
-            x, y, dx, dy,
-            self._tail_width*bbox.height, self._head_width*bbox.height,
-            # Create head with 90 degrees tip
-            # -> head width/length ratio = 1/2
-            head_ratio=0.5, draw_head=draw_head,
-            color=biotite.colors["orange"], linewidth=0
-        ))
-
-# Test our drawing functions with example annotation
-ubq_sec_annotation = seq.Annotation([
-    seq.Feature("SecStr", [seq.Location(1, 7)], {"sec_str_type" : "sheet"}),
-    seq.Feature("SecStr", [seq.Location(10, 17)], {"sec_str_type" : "sheet"}),
-    seq.Feature("SecStr", [seq.Location(23, 34)], {"sec_str_type" : "helix"}),
-    seq.Feature("SecStr", [seq.Location(40, 45)], {"sec_str_type" : "sheet"}),
-    seq.Feature("SecStr", [seq.Location(48, 50)], {"sec_str_type" : "sheet"}),
-    seq.Feature("SecStr", [seq.Location(56, 59)], {"sec_str_type" : "helix"}),
-    seq.Feature("SecStr", [seq.Location(64, 72)], {"sec_str_type" : "sheet"}),
-])
+    for o in out:
+        try:
+            resname = traj.top.residue(int(o[1]) - 1 - should_be_residue_number)
+        except TypeError:
+            print(o)
+            raise
+        if o[0] == 'rrp600':
+            series[f'distal {resname} 15N_relax_600'] = o[2]
+        elif o[0] == 'rrp800':
+            series[f'distal {resname} 15N_relax_800'] = o[2]
+        elif o[0] == 'psol':
+            series[f'distal {resname} sPRE'] = o[2]
+            
+    return series
