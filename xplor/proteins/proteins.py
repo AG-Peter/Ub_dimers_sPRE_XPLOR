@@ -1,5 +1,7 @@
 import mdtraj as md
-import importlib
+import numpy as np
+import pandas as pd
+import importlib, itertools
 
 with importlib.resources.path("xplor-functions", 'data/amino_acid_names_3_1_letter.txt') as data_path:
     amino_acids_3_letter_1 = data_path
