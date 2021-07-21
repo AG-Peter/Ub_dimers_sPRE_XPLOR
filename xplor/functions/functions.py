@@ -1,22 +1,7 @@
 import mdtraj as md
 import numpy as np
 import pandas as pd
-import encodermap as em
-import loading_lizard as ll
-import matplotlib as mpl
-import matplotlib.pyplot as plt
-import seaborn as sns
-import nglview as ngl
-import xarray as xr
-import expansion_elephant as ep
-import tensorflow as tf
-import running_rabbit as rr
-import sys
-sys.path.insert(0, '/home/kevin/git/Backward/')
-import backward
-rr.update_gmx_environ('2021.1')
-
-import glob, os, re, copy, pickle, hdbscan, subprocess, itertools, pathlib, pyemma, shutil, time, ast
+from ..proteins.proteins import get_column_names_from_pdb
 
 def make_15_N_table(in_file, out_file=None, return_df=True, split_prox_dist=False):
     with open(in_file, 'r') as f:
@@ -334,9 +319,18 @@ def prepare_pdb_for_gmx(file, verification=None):
     with open(file, 'w') as f:
         for line in leading:
             f.write(line)
+
+def call_xplor_with_yaml(pdb_file, **kwargs):
+    # load defaults
+    import yaml
+    
     
 def get_prox_dist_from_mdtraj(frame, traj_file, top_file, frame_no, testing=False,
                              pdb_file='values_from_every_frame/tmp_full_frame_lyq_and_glq_removed_fixed_algo.pdb'):
+    # function specific imports
+    import subprocess, sys, ast
+
+    # define a pre-formatted pandas series
     data = {'traj_file': traj_file, 'top_file': top_file, 'frame': frame_no, 'time': frame.time[0]}
     column_names = get_column_names_from_pdb()
     columns = {column_name: np.nan for column_name in column_names}
@@ -347,14 +341,14 @@ def get_prox_dist_from_mdtraj(frame, traj_file, top_file, frame_no, testing=Fals
     substrings = [item for part in traj_file.split('/') for item in part.split('_')]
     ubq_site = substrings[[substr.startswith('k') for substr in substrings].index(True)]
     
-    should_be_residue_number = traj.n_residues
+    should_be_residue_number = frame.n_residues
     
     # get data
     sPRE_tbl = f'values_from_every_frame/diUbi_{ubq_site}_empty_sPRE_prox_in.tbl'
     relax_600_tbl = f'values_from_every_frame/diUbi_empty_600_mhz_relaxratiopot_prox_in.tbl'
     relax_800_tbl = f'values_from_every_frame/diUbi_empty_800_mhz_relaxratiopot_prox_in.tbl'
     
-    cmd = f"./single_struct_restraints.py -pdb {pdb_file} -spre_tbl {sPRE_tbl} -relax_600_tbl {relax_600_tbl} -relax_800_tbl {relax_800_tbl}"
+    cmd = f"xplor_single_struct.py -pdb {pdb_file} -spre_tbl {sPRE_tbl} -relax_600_tbl {relax_600_tbl} -relax_800_tbl {relax_800_tbl}"
     if testing:
         cmd += ' -testing'
     process = subprocess.Popen(cmd, stderr=subprocess.PIPE, stdout=subprocess.PIPE, shell=True)
@@ -366,7 +360,7 @@ def get_prox_dist_from_mdtraj(frame, traj_file, top_file, frame_no, testing=Fals
     out = ast.literal_eval(out)
 
     for o in out:
-        resname = traj.top.residue(int(o[1]) - 1)
+        resname = frame.top.residue(int(o[1]) - 1)
         if o[0] == 'rrp600':
             series[f'proximal {resname} 15N_relax_600'] = o[2]
         elif o[0] == 'rrp800':
@@ -384,7 +378,7 @@ def get_prox_dist_from_mdtraj(frame, traj_file, top_file, frame_no, testing=Fals
     relax_600_tbl = relax_600_tbl.replace('prox', 'dist')
     relax_800_tbl = relax_800_tbl.replace('prox', 'dist')
 
-    cmd = f"./single_struct_restraints.py -pdb {pdb_file} -spre_tbl {sPRE_tbl} -relax_600_tbl {relax_600_tbl} -relax_800_tbl {relax_800_tbl}"
+    cmd = f"xplor_single_struct.py -pdb {pdb_file} -spre_tbl {sPRE_tbl} -relax_600_tbl {relax_600_tbl} -relax_800_tbl {relax_800_tbl}"
     if testing:
         cmd += ' -testing'
     process = subprocess.Popen(cmd, stderr=subprocess.PIPE, stdout=subprocess.PIPE, shell=True)
@@ -397,7 +391,7 @@ def get_prox_dist_from_mdtraj(frame, traj_file, top_file, frame_no, testing=Fals
 
     for o in out:
         try:
-            resname = traj.top.residue(int(o[1]) - 1 - should_be_residue_number)
+            resname = frame.top.residue(int(o[1]) - 1 - should_be_residue_number)
         except TypeError:
             print(o)
             raise

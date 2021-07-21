@@ -19,4 +19,13 @@ setup(name='xplor_functions',
           "Programming Language :: Python :: 3",
           "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
           "Operating System :: OS Independent",
-      ])
+      ],
+      scripts=['xplor/scripts/xplor_single_struct.py'],
+      options={'build_scripts':
+        {'executable': '/home/kevin/software/xplor-nih/xplor-nih-3.2/bin/pyXplor'}
+      },
+      include_package_data=True,
+      package_data = {
+        'xplor': ['data/*']
+      }
+      )
