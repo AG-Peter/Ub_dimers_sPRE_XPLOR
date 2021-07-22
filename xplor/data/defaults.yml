@@ -1,11 +1,11 @@
 psol:
-  create_PSolPot:
+  call_parameters:
     name:
       type: str
-      value: 'psol'
+      value: psol
       descr: |
         This is the name of the potential term assigned to this PSolPot object
-        It can contain any string and can be used to 
+        It can contain any string and can be used to
     restraints:
       type: file
       value: data/diUbi_sPRE_empty_w_CONECT.tbl
@@ -17,12 +17,133 @@ psol:
         assign (resid 2  and name HN)   5.510   0.711
         assign (resid 3  and name HN)   1.223   1.816
         assign (resid 4  and name HN)   4.381   0.402
-  parameters:
+    tauc:
+      type: float
+      value: 0.2
+      descr: correlation time
+    probeR:
+      type: float
+      value: 3.5
+      descr: radius of probe molecule
+    probeC:
+      type: float
+      value: 4.0
+      descr: probe concentration - units?
+    fixTauc:
+      type: bool
+      value: True
+      descr: whether to fix the value of tauc, or to let it float
+    eSpinQuantumNumber:
+      type: float
+      value: 3.5
+      descr: electron sping quantum number
+    domainSelection:
+      type: str
+      value: known and not pseudo
+      descr: atoms to use in surface calculation
+  set_parameters:
+    Radii:
+      type: list
+      value:
+      descr: vector of atomic radii, of size len(selection())
+    RadiusNose:
+      type: float
+      value: 10e-8
+      descr: |
+        small value added to each atomic radius to try to avoid
+        numerical instabilities. Further, if a bad tessellation
+        is detected, a different random value between
+        0 and radiusNoise is used. [10^{-8}]
     ProbeRadius:
       type: float
       value: 3.5
       descr: Solute radius, used to generate tessellated surface for surface integration. [3.5 angstrom].
-    radiusOffset:
+    RadiusOffset:
       type: float
       value: 3.5
       descr: Amount added to VdW radii given in radii for use in generating the tessellated surface  [3.5 angstrom].
+    Rmin:
+      type: float
+      value: 0.8
+      descr: |
+        min distance from surface to nuclear center. The
+        value actually used depends on physicalAtoms(). If the
+        later is True the actual rmin used is the larger of rmin and
+    PhysicalAtoms:
+      type: bool
+      value: True
+      descr: a boolean value. Please see the docs for the rmin accessor. [True]
+    CenterOffset:
+      type: float
+      value: 0.
+      descr:  center offset of solute - for off-center paramagnetic center [0. angstrom]
+    TargetType:
+      type: str
+      value: correlation
+      descr: |
+         Whether energy term targets differences in observed and
+         calculated solvent PRE, or the correlation of observed to
+         calculated: "gamma" or "correlation". ["correlation"]
+    PotType:
+      type: str
+      value: hard
+      descr: 'energy form for the energy term: "soft" or "hard" ["hard].'
+    RlxType:
+      type: str
+      value: r2dd
+      descr: |
+        specification of relaxation type: "r2dd" or "r1dd".
+        This is used in computation of the constant prefactor,
+        and has no effect for correlation target type.  ["r2dd"]
+    FunType:
+      type: str
+      value: harmonic
+      descr: |
+        takes a value of "square" or "harmonic". The former value
+        results in zero energy in a range of obs()+/-err().
+        ["harmonic"]
+    SclType:
+      type: str
+      value: const
+      descr: |
+        controls how the restraint energy is scaled: "none" for no
+        scaling (weight=1), "sigma" for 1/err^2 scaling, and
+        obs/obs_max/err^2 for "obsig" ["const"]
+    ShowAllRestraints:
+      type: bool
+      value: False
+      descr: If set to True, the `showViolations()` method will show all restraints an not just the ones, violating temrs.
+    HardExp:
+      type: int
+      value: 2
+      descr: exponential for hard potType [2].
+    TauC:
+      type: float
+      value: 0.2
+      descr: Correlation Time
+    FreqI:
+      type: float
+      value: 600
+      descr: nuclear frequency  [MHz]
+    Sqn:
+      type: float
+      value: 3.5
+      descr: electron spin quantum number
+    GammaI:
+      type: float
+      value: 1e7
+      descr: gyromagnetic ratio [10^7 Ts-1]
+    Rho0:
+      type: float
+      value: 4.0
+      descr: conc. of paramagnetic solute [mM]
+    FixTauc:
+      type: float
+      value: True
+      descr: If True, fix tau_c. If False, parameters for tau_c optimization should be specified - this feature is not well tested.
+    Verbose:
+      type: bool
+      value: True
+      descr: set to True for verbose output [True].
+
+
