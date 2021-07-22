@@ -8,7 +8,7 @@ psol:
         It can contain any string and can be used to
     restraints:
       type: file
-      value: data/diUbi_sPRE_empty_w_CONECT.tbl
+      value: data/diUbi_sPRE_k6_w_CONECT.tbl
       descr: |
         The location of the spre_tble file that will be passed to XPLOR.
         The spre table file needs to be formatted as such:
@@ -42,7 +42,7 @@ psol:
       value: known and not pseudo
       descr: atoms to use in surface calculation
   set_parameters:
-    RadiusNose:
+    RadiusNoise:
       type: float
       value: 10e-8
       descr: |

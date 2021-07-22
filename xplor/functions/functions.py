@@ -192,16 +192,51 @@ def make_15_N_table(in_file, out_file=None, return_df=True, split_prox_dist=Fals
 
 
 def label(resSeq, sPRE, err=0.01):
+    """Label for sPRE.tbl files."""
     return f"assign (resid {resSeq:<2} and name HN)	{sPRE:5.3f}	{err:5.3f}"
 
 
 def getResSeq(lines):
+    """Returns Resseqs for lines in sPRE .txt files provided by Tobias Schneider."""
     return list(map(lambda x: int(x.split('\t')[0][3:]), filter(lambda x: False if (x == '' or 'mM' in x or 'primary' in x) else True, lines)))
 
 
 def make_sPRE_table(in_files, out_file=None, return_df=True, split_prox_dist=False):
-    files = glob.glob(in_files)
-    files = sorted(files, key=lambda x: 1 if ('proximal' in x or 'prox' in x) else 2)
+    """Creates a pandas dataframe from a sPRE results file provided by Tobias Schneider.
+
+    The input is expected to be a .txt file akin to this layout::
+        primary sequence	sPRE	err
+            mM\+(-1)s\+(-1)
+        Gln2	3.67659401129085	3.49776478934889
+        Ile3	2.03877683593419	1.24739785462518
+        Phe4	--	--
+        Val5	2.00930109656374	2.94263017846034
+        Lys6	2.75217278575404	1.10804033122158
+        Thr7	6.0981182022504		0.785394525309821
+        Leu8	2.94922624345896	1.53018589439035
+        Thr9	8.38046508538605	0.855337600823175
+
+    This gets parsed and put into a dataframe with the option out_file, the dataframe
+    is put into a .tbl file, which can be read by XPLOR.
+
+    Args:
+        in_file (str): The input file. Can be a project data resource.
+
+    Keyword Args:
+        out_file (Union[str, None], optional): Where to put the tbl file.
+            If None is provided, the .tbl file will not be written to disk.
+            Defaults to None.
+        return_df (bool, optional): Whether to return a pandas dataframe.
+            Defaults to True.
+        split_prox_dist (bool, optional): Whether to split prox and dist into their own
+            .tbl files or combine them.
+
+    Returns:
+        Union[None, pd.Dataframe]: Either None or the pandas dataframe.
+
+    """
+    in_files = get_local_or_proj_file(in_files)
+    files = sorted(in_files, key=lambda x: 1 if ('proximal' in x or 'prox' in x) else 2)
     assert len(files) == 2, print(f"I need a proximal and a distal file. I found {files}")
     proximal, distal = files
     
@@ -368,6 +403,7 @@ def parse_pdb_line(line):
 
 
 def prepare_pdb_for_gmx(file, verification=None):
+    """Function from expansion elephant. Might be deprecated."""
     if verification:
         with open(verification, 'r') as f:
             verification_lines = f.readlines()
@@ -454,12 +490,15 @@ def call_xplor_with_yaml(pdb_file, yaml_file='', from_tmp=False, testing=False, 
 
     # overwrite tbl files, if present
     defaults.update(kwargs)
-    arguments = write_argparse_lines_from_yaml_or_dict(defaults)
+
     # get the datafiles
     for pot in ['psol', 'rrp600', 'rrp800']:
         if pot in defaults:
            filename = get_local_or_proj_file(defaults[pot]['call_parameters']['restraints']['value'])
            defaults[pot]['call_parameters']['restraints']['value'] = filename
+
+    # make arguments out of them
+    arguments = write_argparse_lines_from_yaml_or_dict(defaults)
 
     if from_tmp:
         executable = '/home/kevin/software/xplor-nih/xplor-nih-3.2/bin/pyXplor /tmp/pycharm_project_13/xplor/scripts/xplor_single_struct.py'
@@ -474,10 +513,12 @@ def call_xplor_with_yaml(pdb_file, yaml_file='', from_tmp=False, testing=False, 
     out = out.decode(sys.stdin.encoding)
     err = err.decode(sys.stdin.encoding)
     if return_code > 0:
+        print(out)
         raise Exception(f"Call to subprocess did not succeed. Here's the error: {err}, and the return code: {return_code}")
     # out = out.split('findImportantAtoms: done')[1]
     # out = ast.literal_eval(out)
     print(out)
+
 
 def parallel_xplor(trajs, yaml_file='', from_tmp=False, **kwargs):
     pass

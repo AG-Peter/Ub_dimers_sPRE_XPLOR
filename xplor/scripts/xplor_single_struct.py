@@ -85,7 +85,7 @@ def main(**kwargs):
     
     out = []
     
-    if relax_600_tbl:
+    if 'rrp600_call_parameters_restraints' in kwargs:
         relax_data_in = readInRelaxData(relax_600_tbl, pattern=['resid', 'R1', 'R1_err', 'R2', 'R2_err', 'NOE', 'NOE_err'])
         rrp600 = create_RelaxRatioPot('rrp600', data_in=relax_data_in, freq=600, temperature=300)
 
@@ -94,7 +94,7 @@ def main(**kwargs):
             value = r.calcd()
             out.append(['rrp600', res_id, value])
             
-    if relax_800_tbl:
+    if 'rrp800_call_parameters_restraints' in kwargs:
         relax_data_in = readInRelaxData(relax_800_tbl, pattern=['resid', 'R1', 'R1_err', 'R2', 'R2_err', 'NOE', 'NOE_err'])
         rrp800 = create_RelaxRatioPot('rrp800', data_in=relax_data_in, freq=800, temperature=300)
 
@@ -102,12 +102,33 @@ def main(**kwargs):
             res_id = r.name().split()[1]
             value = r.calcd()
             out.append(['rrp800', res_id, value])
-            
-    if spre_tbl:
+
+    print(kwargs['psol_call_parameters_restraints'])
+    if 'psol_call_parameters_restraints' in kwargs:
         from psolPotTools import create_PSolPot
-        print('here')
-        raise SystemExit(0)
-        psol = create_PSolPot("psol", file=spre_tbl)
+        psol = create_PSolPot(name='psol', file=kwargs['psol_call_parameters_restraints'])
+        # psol = create_PSolPot(name=kwargs['psol_call_parameters_name'],
+        #                       file=kwargs['psol_call_parameters_restraints'],
+        #                       tauc=kwargs['psol_call_parameters_tauc'],
+        #                       probeR=kwargs['psol_call_parameters_probeR'],
+        #                       probeC=kwargs['psol_call_parameters_probeC'],
+        #                       fixTauc=kwargs['psol_call_parameters_fixTauc'],
+        #                       eSpinQuantumNumber=kwargs['psol_call_parameters_eSpinQuantumNumber'],
+        #                       domainSelection=kwargs['psol_call_parameters_domainSelection'])
+
+        # prefix = 'psol_set_parameters_'
+        # for key, value in kwargs.items():
+        #     if key.startswith(prefix):
+        #         key = 'set' + key.replace(prefix, '')
+        #         if isinstance(value, bool) and value:
+        #             pass
+        #             # getattr(psol, key)()
+        #         else:
+        #             getattr(psol, key)(value)
+        # getattr(psol, 'setFreqI')(600.0)
+        # print(psol.freqI())
+        # raise SystemExit(0)
+
         # psol.setScale(0.002)
 
         radius = 3.5
@@ -128,6 +149,7 @@ def main(**kwargs):
         psol.setProbeRadius(radius)
         psol.setRadiusOffset(radius)
 
+        print(psol.restraints())
         for r in psol.restraints():
             res_id = r.name().split()[2]
             value = r.calcd()
@@ -162,7 +184,7 @@ def entrypoint():
                         help="""electron sping quantum number""")
     parser.add_argument("-psol_call_parameters_domainSelection", required=False, type=str,
                         default="known and not pseudo", help="""atoms to use in surface calculation""")
-    parser.add_argument("-psol_set_parameters_RadiusNose", required=False, type=float, default=10e-8, help="""small value added to each atomic radius to try to avoid
+    parser.add_argument("-psol_set_parameters_RadiusNoise", required=False, type=float, default=10e-8, help="""small value added to each atomic radius to try to avoid
     numerical instabilities. Further, if a bad tessellation
     is detected, a different random value between
     0 and radiusNoise is used. [10^{-8}]
