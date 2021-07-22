@@ -1,0 +1,28 @@
+psol:
+  create_PSolPot:
+    name:
+      type: str
+      value: 'psol'
+      descr: |
+        This is the name of the potential term assigned to this PSolPot object
+        It can contain any string and can be used to 
+    restraints:
+      type: file
+      value: data/diUbi_sPRE_empty_w_CONECT.tbl
+      descr: |
+        The location of the spre_tble file that will be passed to XPLOR.
+        The spre table file needs to be formatted as such:
+        f"assign (resid {resSeq:<2} and name HN)  {sPRE:5.3f} {err:5.3f}"
+        So for example: For Ubiquitin the first three lines of that table look like this:
+        assign (resid 2  and name HN)   5.510   0.711
+        assign (resid 3  and name HN)   1.223   1.816
+        assign (resid 4  and name HN)   4.381   0.402
+  parameters:
+    ProbeRadius:
+      type: float
+      value: 3.5
+      descr: Solute radius, used to generate tessellated surface for surface integration. [3.5 angstrom].
+    radiusOffset:
+      type: float
+      value: 3.5
+      descr: Amount added to VdW radii given in radii for use in generating the tessellated surface  [3.5 angstrom].

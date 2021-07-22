@@ -1,7 +1,10 @@
 import mdtraj as md
 import numpy as np
 import pandas as pd
+import os, sys
 from ..proteins.proteins import get_column_names_from_pdb
+
+YAML_FILE = os.path.join(os.path.dirname(sys.modules['xplor'].__file__), "data/defaults.yml")
 
 def make_15_N_table(in_file, out_file=None, return_df=True, split_prox_dist=False):
     with open(in_file, 'r') as f:
@@ -323,7 +326,12 @@ def prepare_pdb_for_gmx(file, verification=None):
 def call_xplor_with_yaml(pdb_file, **kwargs):
     # load defaults
     import yaml
-    
+
+    with open(YAML_FILE, 'r') as stream:
+        defaults = yaml.safe_load(stream)
+
+    print(defaults)
+
     
 def get_prox_dist_from_mdtraj(frame, traj_file, top_file, frame_no, testing=False,
                              pdb_file='values_from_every_frame/tmp_full_frame_lyq_and_glq_removed_fixed_algo.pdb'):
