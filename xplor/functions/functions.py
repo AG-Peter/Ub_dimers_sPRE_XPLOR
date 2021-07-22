@@ -37,14 +37,31 @@ def get_local_or_proj_file(files):
         return glob_files
 
 
-def write_argparse_lines_from_yaml(yaml_file=''):
+def write_argparse_lines_from_yaml_or_dict(input='', print_argparse=False):
+    """Uses the values from a yaml file to either build argparse lines, or build a string
+    that sets these argparse lines.
+
+    Keyword Args:
+        yaml_file (Union[str, dict], optional): The path to the yaml file to parse.
+            If empty string ('') is provided, the module's default yaml at xplor/data/defaults.yml will
+            be used. Can also be fed with a dict. Defaults to ''.
+        print_argparse (bool, optional): Whether to print argparse lines from
+            that yaml. Defaults to False.
+
+    Returns:
+        str: A string, that can be provided to the XPLOR scirpt.
+
+    """
     import yaml, subprocess
 
+    flags = {}
 
-    if not yaml_file:
-        yaml_file = YAML_FILE
-    with open(yaml_file, 'r') as stream:
-        input_dict = yaml.safe_load(stream)
+    if not input:
+        input = YAML_FILE
+    if isinstance(input, str):
+        with open(input, 'r') as stream:
+            input_dict = yaml.safe_load(stream)
+    input_dict = input
 
     for pot in input_dict.keys():
         for arg_type in input_dict[pot].keys():
@@ -55,12 +72,19 @@ def write_argparse_lines_from_yaml(yaml_file=''):
                 default = f"{data['value']}"
                 help_ = f"{data['descr']}"
                 if type_ == 'file':
+                    flags[flag] = default
                     line = f'parser.add_argument("{flag}", required={required}, type=str, help="""{help_}""")'
                 elif type_ == 'str':
+                    flags[flag] = f'"{default}"'
                     line = f'parser.add_argument("{flag}", required={required}, type={type_}, default="{default}", help="""{help_}""")'
+                elif type_ == 'bool':
+                    flags[flag] = default
+                    line = f'parser.add_argument("{flag}", required={required}, type=str2bool, default="{default}", help="""{help_}""")'
                 else:
+                    flags[flag] = default
                     line = f'parser.add_argument("{flag}", required={required}, type={type_}, default={default}, help="""{help_}""")'
-                print(line)
+                if print_argparse: print(line)
+    return ' '.join([f'{key} {val}' for key, val in flags.items()])
 
 
 def make_15_N_table(in_file, out_file=None, return_df=True, split_prox_dist=False):
@@ -418,7 +442,7 @@ def prepare_pdb_for_gmx(file, verification=None):
             f.write(line)
 
 
-def call_xplor_with_yaml(pdb_file, yaml_file='', from_tmp=False, **kwargs):
+def call_xplor_with_yaml(pdb_file, yaml_file='', from_tmp=False, testing=False, **kwargs):
     # load defaults
     import yaml, subprocess
     if not yaml_file:
@@ -430,7 +454,7 @@ def call_xplor_with_yaml(pdb_file, yaml_file='', from_tmp=False, **kwargs):
 
     # overwrite tbl files, if present
     defaults.update(kwargs)
-
+    arguments = write_argparse_lines_from_yaml_or_dict(defaults)
     # get the datafiles
     for pot in ['psol', 'rrp600', 'rrp800']:
         if pot in defaults:
@@ -441,8 +465,10 @@ def call_xplor_with_yaml(pdb_file, yaml_file='', from_tmp=False, **kwargs):
         executable = '/home/kevin/software/xplor-nih/xplor-nih-3.2/bin/pyXplor /tmp/pycharm_project_13/xplor/scripts/xplor_single_struct.py'
     else:
         executable = '.' + get_local_or_proj_file('scripts/xplor_single_struct.py')
-    cmd = f'{executable} -pdb lol -testing'
-    process = subprocess.Popen(cmd, stderr=subprocess.PIPE, stdout=subprocess.PIPE, shell=False)
+    cmd = f'{executable} -pdb {pdb_file} {arguments}'
+    if testing:
+        cmd += ' -testing'
+    process = subprocess.Popen(cmd, stderr=subprocess.PIPE, stdout=subprocess.PIPE, shell=True)
     out, err = process.communicate()
     return_code = process.poll()
     out = out.decode(sys.stdin.encoding)
@@ -451,6 +477,7 @@ def call_xplor_with_yaml(pdb_file, yaml_file='', from_tmp=False, **kwargs):
         raise Exception(f"Call to subprocess did not succeed. Here's the error: {err}, and the return code: {return_code}")
     # out = out.split('findImportantAtoms: done')[1]
     # out = ast.literal_eval(out)
+    print(out)
 
 def parallel_xplor(trajs, yaml_file='', from_tmp=False, **kwargs):
     pass

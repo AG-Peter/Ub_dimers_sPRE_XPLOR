@@ -6,4 +6,4 @@ import xplor
 xplor.functions.write_argparse_lines_from_yaml()
 
 # %%
-xplor.functions.call_xplor_with_yaml('test.pdb', from_tmp=True)
+xplor.functions.call_xplor_with_yaml('data/2017_06_28_GfM_SMmin_rnd_k6_0_start.pdb', from_tmp=True)

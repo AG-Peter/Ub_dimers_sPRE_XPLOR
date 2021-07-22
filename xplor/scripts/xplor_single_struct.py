@@ -4,6 +4,15 @@ import os, sys, re, glob, os, shutil, json, argparse
 import datetime
 import numpy as np
 
+def str2bool(v):
+    if isinstance(v, bool):
+        return v
+    if v.lower() in ('yes', 'true', 't', 'y', '1'):
+        return True
+    elif v.lower() in ('no', 'false', 'f', 'n', '0'):
+        return False
+    else:
+        raise argparse.ArgumentTypeError('Boolean value expected.')
 def test_main():
     greeting = ("Running in testing mode. I will now proceed to print outputs similar to a working script."
                " This is how to check for correct unraveling of outputs: The psol values are np.random.random()."
@@ -58,18 +67,17 @@ def main(**kwargs):
     print(os.path.dirname(sys.executable))
 
     for key, val in kwargs.items():
-        print(key, value)
-    raise Exception("STOP")
+        print(key, val)
 
-    if testing:
+    if kwargs['testing']:
         test_main()
         sys.exit(0)
         return
     import protocol
-    protocol.loadPDB(pdb, deleteUnknownAtoms=True)
+    protocol.loadPDB(kwargs['pdb'], deleteUnknownAtoms=True)
     protocol.initParams('protein')
     
-    if not spre_tbl and not relax_600_tbl and not relax_800_tbl:
+    if not 'psol_call_parameters_restraints' in kwargs and not 'rrp600_call_parameters_restraints' in kwargs and not 'rrp800_call_parameters_restraints' in kwargs:
         raise Exception("Provide ad least one .tbl file")
     
     from diffPotTools import readInRelaxData
@@ -97,6 +105,8 @@ def main(**kwargs):
             
     if spre_tbl:
         from psolPotTools import create_PSolPot
+        print('here')
+        raise SystemExit(0)
         psol = create_PSolPot("psol", file=spre_tbl)
         # psol.setScale(0.002)
 
@@ -146,14 +156,12 @@ def entrypoint():
                         help="""radius of probe molecule""")
     parser.add_argument("-psol_call_parameters_probeC", required=False, type=float, default=4.0,
                         help="""probe concentration - units?""")
-    parser.add_argument("-psol_call_parameters_fixTauc", required=False, type=bool, default=True,
+    parser.add_argument("-psol_call_parameters_fixTauc", required=False, type=str2bool, default=True,
                         help="""whether to fix the value of tauc, or to let it float""")
     parser.add_argument("-psol_call_parameters_eSpinQuantumNumber", required=False, type=float, default=3.5,
                         help="""electron sping quantum number""")
     parser.add_argument("-psol_call_parameters_domainSelection", required=False, type=str,
                         default="known and not pseudo", help="""atoms to use in surface calculation""")
-    parser.add_argument("-psol_set_parameters_Radii", required=False, type=list, default=None,
-                        help="""vector of atomic radii, of size len(selection())""")
     parser.add_argument("-psol_set_parameters_RadiusNose", required=False, type=float, default=10e-8, help="""small value added to each atomic radius to try to avoid
     numerical instabilities. Further, if a bad tessellation
     is detected, a different random value between
@@ -167,7 +175,7 @@ def entrypoint():
     value actually used depends on physicalAtoms(). If the
     later is True the actual rmin used is the larger of rmin and
     """)
-    parser.add_argument("-psol_set_parameters_PhysicalAtoms", required=False, type=bool, default=True,
+    parser.add_argument("-psol_set_parameters_PhysicalAtoms", required=False, type=str2bool, default=True,
                         help="""a boolean value. Please see the docs for the rmin accessor. [True]""")
     parser.add_argument("-psol_set_parameters_CenterOffset", required=False, type=float, default=0.0,
                         help="""center offset of solute - for off-center paramagnetic center [0. angstrom]""")
@@ -189,7 +197,7 @@ def entrypoint():
     scaling (weight=1), "sigma" for 1/err^2 scaling, and
     obs/obs_max/err^2 for "obsig" ["const"]
     """)
-    parser.add_argument("-psol_set_parameters_ShowAllRestraints", required=False, type=bool, default=False,
+    parser.add_argument("-psol_set_parameters_ShowAllRestraints", required=False, type=str2bool, default=False,
                         help="""If set to True, the `showViolations()` method will show all restraints an not just the ones, violating temrs.""")
     parser.add_argument("-psol_set_parameters_HardExp", required=False, type=int, default=2,
                         help="""exponential for hard potType [2].""")
@@ -203,9 +211,9 @@ def entrypoint():
                         help="""gyromagnetic ratio [10^7 Ts-1]""")
     parser.add_argument("-psol_set_parameters_Rho0", required=False, type=float, default=4.0,
                         help="""conc. of paramagnetic solute [mM]""")
-    parser.add_argument("-psol_set_parameters_FixTauc", required=False, type=float, default=True,
+    parser.add_argument("-psol_set_parameters_FixTauc", required=False, type=str2bool, default=True,
                         help="""If True, fix tau_c. If False, parameters for tau_c optimization should be specified - this feature is not well tested.""")
-    parser.add_argument("-psol_set_parameters_Verbose", required=False, type=bool, default=True,
+    parser.add_argument("-psol_set_parameters_Verbose", required=False, type=str2bool, default=True,
                         help="""set to True for verbose output [True].""")
 
     parser.add_argument('-testing', required=False, action='store_true', help="Does not run XPLOR but uses np.random with seed 1 to produce predictable results.")

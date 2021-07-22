@@ -42,10 +42,6 @@ psol:
       value: known and not pseudo
       descr: atoms to use in surface calculation
   set_parameters:
-    Radii:
-      type: list
-      value:
-      descr: vector of atomic radii, of size len(selection())
     RadiusNose:
       type: float
       value: 10e-8
