@@ -34,8 +34,10 @@ def get_local_or_proj_file(files):
     glob_files = glob.glob(files)
     if not glob_files:
         e = FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), files)
-        datafiles = glob.glob(os.path.join(os.path.dirname(sys.modules['xplor'].__file__), files))
+        proj_files = os.path.join(os.path.dirname(sys.modules['xplor'].__file__), files)
+        datafiles = glob.glob(proj_files)
         if not datafiles:
+            print(proj_files)
             raise e
         else:
             glob_files = datafiles
