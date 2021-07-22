@@ -542,7 +542,7 @@ def call_xplor_with_yaml(pdb_file, yaml_file='', from_tmp=False, testing=False, 
     if from_tmp:
         executable = '/home/kevin/software/xplor-nih/xplor-nih-3.2/bin/pyXplor /tmp/pycharm_project_13/xplor/scripts/xplor_single_struct.py'
     else:
-        executable = '.' + get_local_or_proj_file('scripts/xplor_single_struct.py')
+        executable = 'pyXplor ' + get_local_or_proj_file('scripts/xplor_single_struct.py')
     cmd = f'{executable} -pdb {pdb_file} {arguments}'
     if testing:
         cmd += ' -testing'
