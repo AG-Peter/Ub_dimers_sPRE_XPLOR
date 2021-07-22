@@ -1,12 +1,122 @@
 import mdtraj as md
 import numpy as np
 import pandas as pd
-import os, sys
+import os, sys, errno, string, glob, itertools
 from ..proteins.proteins import get_column_names_from_pdb
 
 YAML_FILE = os.path.join(os.path.dirname(sys.modules['xplor'].__file__), "data/defaults.yml")
 
+
+def get_local_or_proj_file(files):
+    """Gets a file either from local storage or from project files.
+
+    If a file is a local file, this function will simply return the input.
+    If a file is a project file, you can specify it with data/filename*.
+
+    Args:
+        files (str): The filename. Can contain a wildcard *.
+
+    Returns:
+        str: The full filepath
+
+    Raises:
+        FileNotFoundError: When the provided `file` is neither a local nor a project file.
+
+    """
+    glob_files = glob.glob(files)
+    if not glob_files:
+        e = FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), files)
+        datafiles = glob.glob(os.path.join(os.path.dirname(sys.modules['xplor'].__file__), files))
+        if not datafiles:
+            raise e
+        else:
+            glob_files = datafiles
+    if len(glob_files) == 1:
+        return glob_files[0]
+    else:
+        return glob_files
+
+
+def write_argparse_lines_from_yaml_or_dict(input='', print_argparse=False):
+    """Uses the values from a yaml file to either build argparse lines, or build a string
+    that sets these argparse lines.
+
+    Keyword Args:
+        yaml_file (Union[str, dict], optional): The path to the yaml file to parse.
+            If empty string ('') is provided, the module's default yaml at xplor/data/defaults.yml will
+            be used. Can also be fed with a dict. Defaults to ''.
+        print_argparse (bool, optional): Whether to print argparse lines from
+            that yaml. Defaults to False.
+
+    Returns:
+        str: A string, that can be provided to the XPLOR scirpt.
+
+    """
+    import yaml, subprocess
+
+    flags = {}
+
+    if not input:
+        input = YAML_FILE
+    if isinstance(input, str):
+        with open(input, 'r') as stream:
+            input_dict = yaml.safe_load(stream)
+    input_dict = input
+
+    for pot in input_dict.keys():
+        for arg_type in input_dict[pot].keys():
+            for param, data in input_dict[pot][arg_type].items():
+                flag = f'-{pot}_{arg_type}_{param}'
+                required = 'False'
+                type_ = f"{data['type']}"
+                default = f"{data['value']}"
+                help_ = f"{data['descr']}"
+                if type_ == 'file':
+                    flags[flag] = default
+                    line = f'parser.add_argument("{flag}", required={required}, type=str, help="""{help_}""")'
+                elif type_ == 'str':
+                    flags[flag] = f'"{default}"'
+                    line = f'parser.add_argument("{flag}", required={required}, type={type_}, default="{default}", help="""{help_}""")'
+                elif type_ == 'bool':
+                    flags[flag] = default
+                    line = f'parser.add_argument("{flag}", required={required}, type=str2bool, default="{default}", help="""{help_}""")'
+                else:
+                    flags[flag] = default
+                    line = f'parser.add_argument("{flag}", required={required}, type={type_}, default={default}, help="""{help_}""")'
+                if print_argparse: print(line)
+    return ' '.join([f'{key} {val}' for key, val in flags.items()])
+
+
 def make_15_N_table(in_file, out_file=None, return_df=True, split_prox_dist=False):
+    """Creates a pandas dataframe from a 15N relax file provided by Tobias Schneider.
+
+    The input is expected to be a .txt file akin to this layout::
+        %<residue number><chain id><P atom name><Q atom name><freq of spectrometer (MHz)><R1 rate (1/s)><R1 rate error (1/s)><R2 rate (1/s)><R2 rate error (1/s)><NOE><NOE error>
+        2 A N H 600.00 1.401544 0.009619 12.445858 0.285990 0.779673 0.025396
+        3 A N H 600.00 1.439783 0.016894 11.625145 0.153587 0.790700 0.032749
+        4 A N H 600.00 1.442767 0.014602 12.005927 0.442207 0.759039 0.033966
+        5 A N H 600.00 1.345446 0.011759 11.814099 0.120512 0.742896 0.028782
+
+    This gets parsed and put into a dataframe with the option out_file, the dataframe
+    is put into a .tbl file, which can be read by XPLOR.
+
+    Args:
+        in_file (str): The input file. Can be a project data resource.
+
+    Keyword Args:
+        out_file (Union[str, None], optional): Where to put the tbl file.
+            If None is provided, the .tbl file will not be written to disk.
+            Defaults to None.
+        return_df (bool, optional): Whether to return a pandas dataframe.
+            Defaults to True.
+        split_prox_dist (bool, optional): Whether to split prox and dist into their own
+            .tbl files or combine them.
+
+    Returns:
+        Union[None, pd.Dataframe]: Either None or the pandas dataframe.
+
+    """
+    in_file = get_local_or_proj_file(in_file)
     with open(in_file, 'r') as f:
         lines = f.read().splitlines()
     lines = list(filter(lambda x: False if x == '' else True, lines))
@@ -53,18 +163,18 @@ def make_15_N_table(in_file, out_file=None, return_df=True, split_prox_dist=Fals
                 else:
                     rho2.append([int(resnum), R1, R1_err, R2, R2_err, NOE, NOE_err])
         if out_file is not None:
-            if not '*' in out_file:
+            if not '*' in out_file and split_prox_dist:
                 raise Exception("Method will write two files. Please provide a filename with wildcard (*).")
             filename = out_file.replace('*', str(int(mhz)))
             if not split_prox_dist:
-                with open(filename, 'w') as f:
+                with open(filename, 'w+') as f:
                     for r in rho:
                         f.write(' '.join(map(str, r)) + '\n')
                 print(filename, 'written')
             else:
                 fnames = [filename.replace('.tbl', '_proximal.tbl'), filename.replace('.tbl', '_distal.tbl')]
                 for fname, r in zip(fnames, [rho, rho2]):
-                    with open(fname, 'w') as f:
+                    with open(fname, 'w+') as f:
                         for _ in r:
                             f.write(' '.join(map(str, _)) + '\n')
                 print(fnames, 'written')
@@ -79,13 +189,16 @@ def make_15_N_table(in_file, out_file=None, return_df=True, split_prox_dist=Fals
         df['resSeq'] = df.apply(lambda row: row.resSeq + max_ if row['chain id'] == 'B' else row.resSeq, axis=1)
         df = df.sort_values(by=['freq of spectrometer (MHz)', 'chain id', 'resSeq'], axis='rows')
         return(df)
-            
+
+
 def label(resSeq, sPRE, err=0.01):
     return f"assign (resid {resSeq:<2} and name HN)	{sPRE:5.3f}	{err:5.3f}"
 
+
 def getResSeq(lines):
     return list(map(lambda x: int(x.split('\t')[0][3:]), filter(lambda x: False if (x == '' or 'mM' in x or 'primary' in x) else True, lines)))
-    
+
+
 def make_sPRE_table(in_files, out_file=None, return_df=True, split_prox_dist=False):
     files = glob.glob(in_files)
     files = sorted(files, key=lambda x: 1 if ('proximal' in x or 'prox' in x) else 2)
@@ -155,8 +268,6 @@ def make_sPRE_table(in_files, out_file=None, return_df=True, split_prox_dist=Fal
     if return_df:
         return df
 
-import string
-import itertools
 
 def parse_atom_line(line):
     data = {}
@@ -170,6 +281,7 @@ def parse_atom_line(line):
         if isinstance(value, str):
             data[key] = value.strip()
     return data
+
 
 def split_and_order_chains(datas):
     no_chains = len(list(filter(lambda x: True if x == 'OXT' else False, (x.get('name') for x in datas))))
@@ -195,6 +307,7 @@ def split_and_order_chains(datas):
             value['chain'] = new_chain
     return chains
 
+
 def add_ter(chains):
     for i, chain in enumerate(chains):
         for j, element in enumerate(chain):
@@ -212,7 +325,8 @@ def add_ter(chains):
                     data['res_seq'], data['code_for_insertions'] = element['res_seq'], element['code_for_insertions']
                     chains[i].append(data)
     return chains
-    
+
+
 def build_pdb_line(data, atom_nr, res_number):
     if data['record'] == 'ATOM':
         line = f"{data['record']}  {atom_nr:>5}  {data['name']:<4}{data['alternate_loc_ind']}{data['residue']}"
@@ -222,7 +336,8 @@ def build_pdb_line(data, atom_nr, res_number):
         line = f"{data['record']}   {atom_nr:>5}      {data['residue']}"
         line += f" {data['chain']}{res_number:>4}{data['code_for_insertions']}"
     return line
-    
+
+
 def parse_ter_line(line):
     data = {}
     data['record'], data['serial_no'] = line[:4], int(line[6:11])
@@ -235,11 +350,13 @@ def parse_ter_line(line):
 
     return data
 
+
 def create_connect(data):
     line = "CONECT"
     for d in data:
         line += f" {d:>4}"
     return line + '\n'
+
 
 def parse_pdb_line(line):
     if 'ATOM' in line:
@@ -248,6 +365,7 @@ def parse_pdb_line(line):
         return parse_ter_line(line)
     else:
         raise Exception(f"Unknown Record Type in line {line}")
+
 
 def prepare_pdb_for_gmx(file, verification=None):
     if verification:
@@ -323,14 +441,46 @@ def prepare_pdb_for_gmx(file, verification=None):
         for line in leading:
             f.write(line)
 
-def call_xplor_with_yaml(pdb_file, **kwargs):
-    # load defaults
-    import yaml
 
-    with open(YAML_FILE, 'r') as stream:
+def call_xplor_with_yaml(pdb_file, yaml_file='', from_tmp=False, testing=False, **kwargs):
+    # load defaults
+    import yaml, subprocess
+    if not yaml_file:
+        yaml_file = YAML_FILE
+    with open(yaml_file, 'r') as stream:
         defaults = yaml.safe_load(stream)
 
-    print(defaults)
+    pdb_file = get_local_or_proj_file(pdb_file)
+
+    # overwrite tbl files, if present
+    defaults.update(kwargs)
+    arguments = write_argparse_lines_from_yaml_or_dict(defaults)
+    # get the datafiles
+    for pot in ['psol', 'rrp600', 'rrp800']:
+        if pot in defaults:
+           filename = get_local_or_proj_file(defaults[pot]['call_parameters']['restraints']['value'])
+           defaults[pot]['call_parameters']['restraints']['value'] = filename
+
+    if from_tmp:
+        executable = '/home/kevin/software/xplor-nih/xplor-nih-3.2/bin/pyXplor /tmp/pycharm_project_13/xplor/scripts/xplor_single_struct.py'
+    else:
+        executable = '.' + get_local_or_proj_file('scripts/xplor_single_struct.py')
+    cmd = f'{executable} -pdb {pdb_file} {arguments}'
+    if testing:
+        cmd += ' -testing'
+    process = subprocess.Popen(cmd, stderr=subprocess.PIPE, stdout=subprocess.PIPE, shell=True)
+    out, err = process.communicate()
+    return_code = process.poll()
+    out = out.decode(sys.stdin.encoding)
+    err = err.decode(sys.stdin.encoding)
+    if return_code > 0:
+        raise Exception(f"Call to subprocess did not succeed. Here's the error: {err}, and the return code: {return_code}")
+    # out = out.split('findImportantAtoms: done')[1]
+    # out = ast.literal_eval(out)
+    print(out)
+
+def parallel_xplor(trajs, yaml_file='', from_tmp=False, **kwargs):
+    pass
 
     
 def get_prox_dist_from_mdtraj(frame, traj_file, top_file, frame_no, testing=False,
