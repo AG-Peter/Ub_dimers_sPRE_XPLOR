@@ -1,11 +1,19 @@
 import mdtraj as md
 import numpy as np
 import pandas as pd
-import os, sys, errno, string, glob, itertools
+import os, sys, errno, string, glob, itertools, multiprocessing
 from ..proteins.proteins import get_column_names_from_pdb
+from joblib import Parallel, delayed
 
 YAML_FILE = os.path.join(os.path.dirname(sys.modules['xplor'].__file__), "data/defaults.yml")
 
+def _datetime_windows_and_linux_compatible():
+    import datetime
+    from sys import platform
+    if platform == "linux" or platform == "linux2" or platform == "darwin":
+        return datetime.datetime.now().astimezone().replace(microsecond=0).isoformat()
+    elif platform == "win32":
+        return datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
 
 def get_local_or_proj_file(files):
     """Gets a file either from local storage or from project files.
@@ -60,7 +68,7 @@ def write_argparse_lines_from_yaml_or_dict(input='', print_argparse=False):
         input = YAML_FILE
     if isinstance(input, str):
         with open(input, 'r') as stream:
-            input_dict = yaml.safe_load(stream)
+            input = yaml.safe_load(stream)
     input_dict = input
 
     for pot in input_dict.keys():
@@ -201,7 +209,7 @@ def getResSeq(lines):
     return list(map(lambda x: int(x.split('\t')[0][3:]), filter(lambda x: False if (x == '' or 'mM' in x or 'primary' in x) else True, lines)))
 
 
-def make_sPRE_table(in_files, out_file=None, return_df=True, split_prox_dist=False):
+def make_sPRE_table(in_files, out_file=None, return_df=True, split_prox_dist=False, omit_erros=True):
     """Creates a pandas dataframe from a sPRE results file provided by Tobias Schneider.
 
     The input is expected to be a .txt file akin to this layout::
@@ -235,6 +243,7 @@ def make_sPRE_table(in_files, out_file=None, return_df=True, split_prox_dist=Fal
         Union[None, pd.Dataframe]: Either None or the pandas dataframe.
 
     """
+    residues_with_errors = [78, 79]
     in_files = get_local_or_proj_file(in_files)
     files = sorted(in_files, key=lambda x: 1 if ('proximal' in x or 'prox' in x) else 2)
     assert len(files) == 2, print(f"I need a proximal and a distal file. I found {files}")
@@ -280,6 +289,8 @@ def make_sPRE_table(in_files, out_file=None, return_df=True, split_prox_dist=Fal
                     if any(pd.isna(row)):
                         continue
                     new_line = label(row['resSeq'], row['sPRE'], row['err'])
+                    if omit_erros and row['resSeq'] in residues_with_errors:
+                        continue
                     f.write(new_line + '\n')
             print(out_file, 'written')
         else:
@@ -479,6 +490,32 @@ def prepare_pdb_for_gmx(file, verification=None):
 
 
 def call_xplor_with_yaml(pdb_file, yaml_file='', from_tmp=False, testing=False, **kwargs):
+    """Calls the xplor script with values from a yaml file.
+
+    Arguments for XPLOR can be provided by either specifying a yaml file, or
+    providing them as keyword_args to this function.
+
+    Args:
+        pdb_file (str): File path to a pdb file. Can be either a local file
+            or a project file in xplor/data
+
+    Keyword Args:
+        yaml_file (str, optional): Path to a yaml file. If an empty string is provided
+            the defaults.yml file from xplor/data is loaded. Defaults to ''.
+        from_tmp (bool, optional): Changes the executable of the command to
+            work with an ssh interpreter to 134.34.112.158. If set to false,
+            the executable will be taken from xplor/scripts.
+            Defaults to False
+        testing (bool, optional): Adds the '-testing' flag to the command.
+            Defaults to False.
+        **kwargs: Arbitrary keyword arguments. Keywords that are not flags
+            of the xplor/scripts/xplor_single_struct_script.py will be discarded.
+
+    Returns:
+        str: The string which the xplor/scripts/xplor_single_struct_script.py
+            prints to stdout
+
+    """
     # load defaults
     import yaml, subprocess
     if not yaml_file:
@@ -489,7 +526,7 @@ def call_xplor_with_yaml(pdb_file, yaml_file='', from_tmp=False, testing=False, 
     pdb_file = get_local_or_proj_file(pdb_file)
 
     # overwrite tbl files, if present
-    defaults.update(kwargs)
+    defaults.update((k, kwargs[k]) for k in set(kwargs).intersection(defaults))
 
     # get the datafiles
     for pot in ['psol', 'rrp600', 'rrp800']:
@@ -515,19 +552,117 @@ def call_xplor_with_yaml(pdb_file, yaml_file='', from_tmp=False, testing=False, 
     if return_code > 0:
         print(out)
         raise Exception(f"Call to subprocess did not succeed. Here's the error: {err}, and the return code: {return_code}")
-    # out = out.split('findImportantAtoms: done')[1]
-    # out = ast.literal_eval(out)
-    print(out)
+    out = out.split('findImportantAtoms: done')[1]
+    return out
 
 
-def parallel_xplor(trajs, yaml_file='', from_tmp=False, **kwargs):
-    pass
+def parallel_xplor(ubq_sites, simdir='/home/andrejb/Research/SIMS/2017_*', n_threads='max-2',
+                   df_outdir='/home/kevin/projects/tobias_schneider/values_from_every_frame/from_package/',
+                   subsample=5, yaml_file='', testing=False, from_tmp=False, max_len=-1, **kwargs):
+    """Runs xplor on many simulations in parallel.
 
-    
-def get_prox_dist_from_mdtraj(frame, traj_file, top_file, frame_no, testing=False,
-                             pdb_file='values_from_every_frame/tmp_full_frame_lyq_and_glq_removed_fixed_algo.pdb'):
+    Args:
+        ubq_sites (list): A list of ubiquitination sites, that should be recognized.
+
+    Keyword Args:
+        simdir (str, optional): Path to the sims, that contain the ubq_site substring.
+            Defaults to '/home/andrejb/Research/SIMS/2017_*'
+        n_threads (Union[int, str], optional): The number of threads to run.
+            Can be an int, but also 'max' or 'max-2', where 'max' will give
+            make this function use the maximum number of cores. 'max-2' will use
+            all but 2 cores. Defaults to 'max-2'
+        subsample (int, optional): Whether to subsample trajectories. Give an
+            int and only use every `subsample`-th frame. Defaults to 5.
+        max_len (int, optional): Only go to that maximum length of a trajectory.
+            Defaults to -1, wich will use the full length of the trajectories.
+        yaml_file (str, optional): Path to a yaml file. If an empty string is provided
+            the defaults.yml file from xplor/data is loaded. Defaults to ''.
+        from_tmp (bool, optional): Changes the executable of the command to
+            work with an ssh interpreter to 134.34.112.158. If set to false,
+            the executable will be taken from xplor/scripts.
+            Defaults to False
+        testing (bool, optional): Adds the '-testing' flag to the command.
+            Defaults to False.
+        **kwargs: Arbitrary keyword arguments. Keywords that are not flags
+            of the xplor/scripts/xplor_single_struct_script.py will be discarded.
+
+    Returns:
+        pd.Dataframe: A pandas Dataframe.
+
+    """
+    if n_threads == 'max-2':
+        n_threads = multiprocessing.cpu_count() - 2
+    elif n_threads == 'max':
+        n_threads = multiprocessing.cpu_count()
+    list_of_pandas_series = []
+    for i, ubq_site in enumerate(ubq_sites):
+        for j, dir_ in enumerate(glob.glob(f"{simdir}{ubq_site}*")):
+            traj_file = dir_ + '/traj_nojump.xtc'
+            basename = traj_file.split('/')[-2]
+            top_file = dir_ + '/start.pdb'
+            traj = md.load(traj_file, top=top_file)
+
+            for r in traj.top.residues:
+                if r.index > 75 and r.resSeq < 76:
+                    r.resSeq += 76
+                if r.name == 'GLQ':
+                    r.name = 'GLY'
+                if r.name == 'LYQ':
+                    r.name = 'LYS'
+                    for a in r.atoms:
+                        if a.name == 'CQ': a.name = 'CE'
+                        if a.name == 'NQ': a.name = 'NZ'
+                        if a.name == 'HQ': a.name = 'HZ1'
+
+            out = Parallel(n_jobs=n_threads, prefer='threads')(delayed(get_prox_dist_from_mdtraj)(frame,
+                                                                                                  traj_file,
+                                                                                                  top_file,
+                                                                                                  frame_no,
+                                                                                                  testing=testing,
+                                                                                                  from_tmp=from_tmp,
+                                                                                                  yaml_file=yaml_file,
+                                                                                                  **kwargs) for
+                                                               frame, frame_no in zip(traj[:max_len:subsample],
+                                                                                      np.arange(traj.n_frames)[
+                                                                                      :max_len:subsample]))
+            list_of_pandas_series.extend(out)
+            now = _datetime_windows_and_linux_compatible()
+            df_name = os.path.join(df_outdir, f"{now}_df_no_conect.csv")
+            df = pd.concat(list_of_pandas_series, axis=1).T
+            df.to_csv(df_name)
+    return list_of_pandas_series
+
+
+def get_prox_dist_from_mdtraj(frame, traj_file, top_file, frame_no, testing=False, from_tmp=False, yaml_file='', **kwargs):
+    """Saves a temporary pdb file which will then be passed to call_xplor_with_yaml
+
+    Arguments for XPLOR can be provided by either specifying a yaml file, or
+    providing them as keyword_args to this function.
+
+    Args:
+        frame (md.Trajectory): An `mdtraj.core.Trajectory` instance with 1 frame.
+        traj_file (str): The location of the original trajectory.
+        top_file (str): The location of the original topology.
+        frame_no (int): The frame number the trajectory originates from.
+
+    Keyword Args:
+        yaml_file (str, optional): Path to a yaml file. If an empty string is provided
+            the defaults.yml file from xplor/data is loaded. Defaults to ''.
+        from_tmp (bool, optional): Changes the executable of the command to
+            work with an ssh interpreter to 134.34.112.158. If set to false,
+            the executable will be taken from xplor/scripts.
+            Defaults to False
+        testing (bool, optional): Adds the '-testing' flag to the command.
+            Defaults to False.
+        **kwargs: Arbitrary keyword arguments. Keywords that are not flags
+            of the xplor/scripts/xplor_single_struct_script.py will be discarded.
+
+    Returns:
+        pd.Series: A pandas Series instance.
+
+        """
     # function specific imports
-    import subprocess, sys, ast
+    import ast
 
     # define a pre-formatted pandas series
     data = {'traj_file': traj_file, 'top_file': top_file, 'frame': frame_no, 'time': frame.time[0]}
@@ -539,33 +674,19 @@ def get_prox_dist_from_mdtraj(frame, traj_file, top_file, frame_no, testing=Fals
     # [y for x in non_flat for y in x]
     substrings = [item for part in traj_file.split('/') for item in part.split('_')]
     ubq_site = substrings[[substr.startswith('k') for substr in substrings].index(True)]
-    
+
     should_be_residue_number = frame.n_residues
     
     # get data
-    sPRE_tbl = f'values_from_every_frame/diUbi_{ubq_site}_empty_sPRE_prox_in.tbl'
-    relax_600_tbl = f'values_from_every_frame/diUbi_empty_600_mhz_relaxratiopot_prox_in.tbl'
-    relax_800_tbl = f'values_from_every_frame/diUbi_empty_800_mhz_relaxratiopot_prox_in.tbl'
-    
-    cmd = f"xplor_single_struct.py -pdb {pdb_file} -spre_tbl {sPRE_tbl} -relax_600_tbl {relax_600_tbl} -relax_800_tbl {relax_800_tbl}"
-    if testing:
-        cmd += ' -testing'
-    process = subprocess.Popen(cmd, stderr=subprocess.PIPE, stdout=subprocess.PIPE, shell=True)
-    out, err = process.communicate()
-    return_code = process.poll()
-    out = out.decode(sys.stdin.encoding)
-    err = err.decode(sys.stdin.encoding)
-    out = out.split('findImportantAtoms: done')[1]
-    out = ast.literal_eval(out)
+    basename = os.path.basename(traj_file).split('.')[0]
+    pdb_file = os.path.join(os.getcwd(), f'tmp_{basename}_frame_{frame_no}_hash_{abs(hash(frame))}.pdb')
+    frame.save_pdb(pdb_file)
 
-    for o in out:
-        resname = frame.top.residue(int(o[1]) - 1)
-        if o[0] == 'rrp600':
-            series[f'proximal {resname} 15N_relax_600'] = o[2]
-        elif o[0] == 'rrp800':
-            series[f'proximal {resname} 15N_relax_800'] = o[2]
-        elif o[0] == 'psol':
-            series[f'proximal {resname} sPRE'] = o[2]
+    try:
+        out = call_xplor_with_yaml(pdb_file, from_tmp=from_tmp, testing=testing, yaml_file=yaml_file, **kwargs)
+        out = ast.literal_eval(out)
+    finally:
+        os.remove(pdb_file)
 
     if series['proximal ILE3 sPRE'] == 0 and series['proximal PHE4 sPRE'] == 0:
         print(cmd)
@@ -573,32 +694,23 @@ def get_prox_dist_from_mdtraj(frame, traj_file, top_file, frame_no, testing=Fals
         print(psol)
         raise Exception(f"This psol value should not be 0. Traj is {traj_file}, frame is {frame_no}")
 
-    sPRE_tbl = sPRE_tbl.replace('prox', 'dist')
-    relax_600_tbl = relax_600_tbl.replace('prox', 'dist')
-    relax_800_tbl = relax_800_tbl.replace('prox', 'dist')
-
-    cmd = f"xplor_single_struct.py -pdb {pdb_file} -spre_tbl {sPRE_tbl} -relax_600_tbl {relax_600_tbl} -relax_800_tbl {relax_800_tbl}"
-    if testing:
-        cmd += ' -testing'
-    process = subprocess.Popen(cmd, stderr=subprocess.PIPE, stdout=subprocess.PIPE, shell=True)
-    out, err = process.communicate()
-    return_code = process.poll()
-    out = out.decode(sys.stdin.encoding)
-    err = err.decode(sys.stdin.encoding)
-    out = out.split('findImportantAtoms: done')[1]
-    out = ast.literal_eval(out)
-
     for o in out:
+        if int(o[1]) <= (should_be_residue_number / 2) - 1:
+            resSeq = int(o[1])
+            position = 'proximal'
+        else:
+            resSeq = int(int(o[1]) - (should_be_residue_number / 2))
+            position = 'distal'
         try:
-            resname = frame.top.residue(int(o[1]) - 1 - should_be_residue_number)
+            resname = frame.top.residue(int(o[1]) - 1).name
         except TypeError:
             print(o)
             raise
         if o[0] == 'rrp600':
-            series[f'distal {resname} 15N_relax_600'] = o[2]
+            series[f'{position} {resname}{resSeq} 15N_relax_600'] = o[2]
         elif o[0] == 'rrp800':
-            series[f'distal {resname} 15N_relax_800'] = o[2]
+            series[f'{position} {resname}{resSeq} 15N_relax_800'] = o[2]
         elif o[0] == 'psol':
-            series[f'distal {resname} sPRE'] = o[2]
+            series[f'{position} {resname}{resSeq} sPRE'] = o[2]
             
     return series

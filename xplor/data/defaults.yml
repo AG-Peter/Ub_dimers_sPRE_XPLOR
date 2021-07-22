@@ -8,7 +8,7 @@ psol:
         It can contain any string and can be used to
     restraints:
       type: file
-      value: data/diUbi_sPRE_k6_w_CONECT.tbl
+      value: data/diUbi_k6_sPRE_in.tbl
       descr: |
         The location of the spre_tble file that will be passed to XPLOR.
         The spre table file needs to be formatted as such:
@@ -27,7 +27,7 @@ psol:
       descr: radius of probe molecule
     probeC:
       type: float
-      value: 4.0
+      value: 0.24
       descr: probe concentration - units?
     fixTauc:
       type: bool
@@ -127,14 +127,14 @@ psol:
       descr: electron spin quantum number
     GammaI:
       type: float
-      value: 1e7
-      descr: gyromagnetic ratio [10^7 Ts-1]
+      value: 26.752196
+      descr: gyromagnetic ratio [10^7 Ts-1] of hydrogen.
     Rho0:
       type: float
-      value: 4.0
+      value: 0.24
       descr: conc. of paramagnetic solute [mM]
     FixTauc:
-      type: float
+      type: bool
       value: True
       descr: If True, fix tau_c. If False, parameters for tau_c optimization should be specified - this feature is not well tested.
     Verbose:
@@ -142,4 +142,328 @@ psol:
       value: True
       descr: set to True for verbose output [True].
 
+rrp600:
+  call_parameters:
+    name:
+      type: str
+      value: rrp600
+      descr: |
+        This is the name of the potential term assigned to this PSolPot object
+        It can contain any string and can be used to
+    restraints:
+      type: file
+      value: data/diUbi_k6_600_mhz_relaxratiopot_in.tbl
+      descr: |
+        The location of the spre_tble file that will be passed to XPLOR.
+        The spre table file needs to be formatted as such:
+        int(resnum), R1, R1_err, R2, R2_err, NOE, NOE_err
+        So for example: For Ubiquitin the first three lines of that table look like this:
+        2 1.401544 0.009619 12.445858 0.009619 0.779673 0.025396
+        3 1.439783 0.016894 11.625145 0.016894 0.7907 0.032749
+        4 1.442767 0.014602 12.005927 0.014602 0.759039 0.033966
+        5 1.345446 0.011759 11.814099 0.011759 0.742896 0.028782
+    freq:
+      type: float
+      value: 600
+      descr: spectrometer frequency in MHz.
+    sel:
+      type: str
+      value: known and (not PSEUDO)
+      descr: |
+        an atomSel.AtomSel specifying atoms to define
+        the molecular surface. This argument is not used
+        the link_to argument is specified.
+    inc_sel:
+      type: str
+      value: known
+      descr: an atomSel.AtomSel specifying the relaxation data to use for energy calculations, by atom.
+    temperature:
+      type: float
+      value: 293
+      descr: the nominal experimental temperature in Kelvins.
+    optTemp:
+      type: bool
+      value: False
+      descr: 'whether or not to perform temperature optimization. [default: False]'
+    addAtoms:
+      type: bool
+      value: False
+      descr: synonym for optTemp - deprecated.
+    mass:
+      type: float
+      value: 1000
+      descr: mass of the pseudo atoms used for temperature optimization.
+    bond_type:
+      type: str
+      value: NH
+      descr: the nuclei involved in relaxation. Currently only 'NH' is supported.
+    sigmaFactor:
+      type: float
+      value: 10000000
+      descr: value for the sigmaFactor of the RelaxRatioPot object.
+    CSA:
+      type: float
+      value: -160
+      descr: value of Chemical Shielding tensor Anisotropy, in ppm
+  set_parameters:
+    ShowAllRestraints:
+      type: bool
+      value: True
+      descr: |
+        boolean which changes the behavior of the
+        violations printout. If this parameter is
+        set to True,  all restraints are printed.
+        Violated restraints are indicated by an
+        asterisk in the first column.
+    DiffTmpF:
+      type: float
+      value: 80315402327.6
+      descr: |
+        factor which accounts for viscosity and
+        temperature of solvent, in units of 1/s.
+        Default value corresponds to water at 293 K.
+        See definition below.
+    DiffShell:
+      type: float
+      value: 2.8
+      descr: |
+        hydration layer thickness, in Angstroms.
+        Note: changes the shell thickness in
+        surfTessellation object where the potential
+        is linked to. Thus, if changed for the same
+        surfTessellation object.
+    MedianTmp:
+      type: float
+      value: 293
+      descr: the nominal temperature.
+    GyroR:
+      type: float
+      value: 9.869
+      descr: value of ratio between gyro magnetic ratios of interacting nuclei.
+    DipC2:
+      type: float
+      value: 1.1429
+      descr: |
+        [J^2/(s^2 T^2 m^6)]*[MHz^(-4)]. strength of the
+        dipolar coupling interaction. Units of
+        inverse nanoseconds.
 
+        For a pair of a pair of NH nuclei
+         dipC2=(mu_0*g_n*g_h*h_bar/(8*pi*r_NH^3))^2
+        where
+        magnetic permittivity of vacuum:
+             mu_0  =  4*pi*1e-7       [H/m]
+        hydrogen gyro magnetic ratio:
+             g_n   =  2*pi*42.576*1e6 [Hz/T]
+        15N gyro magnetic ratio:
+             g_h   = -2*pi*4.3156*1e6 [Hz/T]
+        Planck constant over 2*pi
+             h_bar =  1.05457*1e-34   [J s]
+        effective nuclei pair distance
+             r_NH  =  1.0420 [A]
+             (this is the value obtained from
+              neutron diffraction scaled to
+              account for librations)
+    DiffRrmsd:
+      type: float
+      value: 0.5
+      descr: |
+        the value of rmsd, in Angstroms, separating
+        current structure and the one that was used for
+        tessellation of the protein surface last
+        time which triggers new retessellation
+        of the protein surface.
+    DiffRstep:
+      type: float
+      value: 30
+      descr: |
+        the number of derivative calculation
+        events which trigger a new retessellation of
+        the protein surface.
+    TempRange:
+      type: float
+      value: 0
+      descr: the range of temperatures, in Kelvin, for temperature optimization.
+    Freq:
+      type: float
+      value: 600
+      descr: spectrometer frequency, in MHz.
+    SigmaFactor:
+      type: float
+      value: 10000000
+      descr: factor used in the computation of the cutoff value. See below.
+    SoftExp:
+      type: float
+      value: 8.0
+      descr: softExp parameter for asymptotic potential (see below).
+    AsymSlope:
+      type: float
+      value: 0.0
+      descr: asympSlope parameter for asymptotic potential (see below).
+    Verbose:
+      type: bool
+      value: True
+      descr: verbose operation.
+
+rrp800:
+  call_parameters:
+    name:
+      type: str
+      value: rrp800
+      descr: |
+        This is the name of the potential term assigned to this PSolPot object
+        It can contain any string and can be used to
+    restraints:
+      type: file
+      value: data/diUbi_k6_800_mhz_relaxratiopot_in.tbl
+      descr: |
+        The location of the spre_tble file that will be passed to XPLOR.
+        The spre table file needs to be formatted as such:
+        int(resnum), R1, R1_err, R2, R2_err, NOE, NOE_err
+        So for example: For Ubiquitin the first three lines of that table look like this:
+        2 1.401544 0.009619 12.445858 0.009619 0.779673 0.025396
+        3 1.439783 0.016894 11.625145 0.016894 0.7907 0.032749
+        4 1.442767 0.014602 12.005927 0.014602 0.759039 0.033966
+        5 1.345446 0.011759 11.814099 0.011759 0.742896 0.028782
+    freq:
+      type: float
+      value: 800
+      descr: spectrometer frequency in MHz.
+    sel:
+      type: str
+      value: known and (not PSEUDO)
+      descr: |
+        an atomSel.AtomSel specifying atoms to define
+        the molecular surface. This argument is not used
+        the link_to argument is specified.
+    inc_sel:
+      type: str
+      value: known
+      descr: an atomSel.AtomSel specifying the relaxation data to use for energy calculations, by atom.
+    temperature:
+      type: float
+      value: 293
+      descr: the nominal experimental temperature in Kelvins.
+    optTemp:
+      type: bool
+      value: False
+      descr: 'whether or not to perform temperature optimization. [default: False]'
+    addAtoms:
+      type: bool
+      value: False
+      descr: synonym for optTemp - deprecated.
+    mass:
+      type: float
+      value: 1000
+      descr: mass of the pseudo atoms used for temperature optimization.
+    bond_type:
+      type: str
+      value: NH
+      descr: the nuclei involved in relaxation. Currently only 'NH' is supported.
+    sigmaFactor:
+      type: float
+      value: 10000000
+      descr: value for the sigmaFactor of the RelaxRatioPot object.
+    CSA:
+      type: float
+      value: -160
+      descr: value of Chemical Shielding tensor Anisotropy, in ppm
+  set_parameters:
+    ShowAllRestraints:
+      type: bool
+      value: True
+      descr: |
+        boolean which changes the behavior of the
+        violations printout. If this parameter is
+        set to True,  all restraints are printed.
+        Violated restraints are indicated by an
+        asterisk in the first column.
+    DiffTmpF:
+      type: float
+      value: 80315402327.6
+      descr: |
+        factor which accounts for viscosity and
+        temperature of solvent, in units of 1/s.
+        Default value corresponds to water at 293 K.
+        See definition below.
+    DiffShell:
+      type: float
+      value: 2.8
+      descr: |
+        hydration layer thickness, in Angstroms.
+        Note: changes the shell thickness in
+        surfTessellation object where the potential
+        is linked to. Thus, if changed for the same
+        surfTessellation object.
+    MedianTmp:
+      type: float
+      value: 293
+      descr: the nominal temperature.
+    GyroR:
+      type: float
+      value: 9.869
+      descr: value of ratio between gyro magnetic ratios of interacting nuclei.
+    DipC2:
+      type: float
+      value: 1.1429
+      descr: |
+        [J^2/(s^2 T^2 m^6)]*[MHz^(-4)]. strength of the
+        dipolar coupling interaction. Units of
+        inverse nanoseconds.
+
+        For a pair of a pair of NH nuclei
+         dipC2=(mu_0*g_n*g_h*h_bar/(8*pi*r_NH^3))^2
+        where
+        magnetic permittivity of vacuum:
+             mu_0  =  4*pi*1e-7       [H/m]
+        hydrogen gyro magnetic ratio:
+             g_n   =  2*pi*42.576*1e6 [Hz/T]
+        15N gyro magnetic ratio:
+             g_h   = -2*pi*4.3156*1e6 [Hz/T]
+        Planck constant over 2*pi
+             h_bar =  1.05457*1e-34   [J s]
+        effective nuclei pair distance
+             r_NH  =  1.0420 [A]
+             (this is the value obtained from
+              neutron diffraction scaled to
+              account for librations)
+    DiffRrmsd:
+      type: float
+      value: 0.5
+      descr: |
+        the value of rmsd, in Angstroms, separating
+        current structure and the one that was used for
+        tessellation of the protein surface last
+        time which triggers new retessellation
+        of the protein surface.
+    DiffRstep:
+      type: float
+      value: 30
+      descr: |
+        the number of derivative calculation
+        events which trigger a new retessellation of
+        the protein surface.
+    TempRange:
+      type: float
+      value: 0
+      descr: the range of temperatures, in Kelvin, for temperature optimization.
+    Freq:
+      type: float
+      value: 800
+      descr: spectrometer frequency, in MHz.
+    SigmaFactor:
+      type: float
+      value: 10000000
+      descr: factor used in the computation of the cutoff value. See below.
+    SoftExp:
+      type: float
+      value: 8.0
+      descr: softExp parameter for asymptotic potential (see below).
+    AsymSlope:
+      type: float
+      value: 0.0
+      descr: asympSlope parameter for asymptotic potential (see below).
+    Verbose:
+      type: bool
+      value: True
+      descr: verbose operation.
