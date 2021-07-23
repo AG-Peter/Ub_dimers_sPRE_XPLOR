@@ -1,13 +1,13 @@
 import mdtraj as md
 import numpy as np
 import pandas as pd
-import os, sys, errno, string, glob, itertools, multiprocessing
+import os, sys, errno, string, glob, itertools, multiprocessing, dateutil, datetime
 from ..proteins.proteins import get_column_names_from_pdb
 from joblib import Parallel, delayed
 
 YAML_FILE = os.path.join(os.path.dirname(sys.modules['xplor'].__file__), "data/defaults.yml")
 
-def _datetime_windows_and_linux_compatible():
+def datetime_windows_and_linux_compatible():
     import datetime
     from sys import platform
     if platform == "linux" or platform == "linux2" or platform == "darwin":
@@ -687,7 +687,7 @@ def parallel_xplor(ubq_sites, simdir='/home/andrejb/Research/SIMS/2017_*', n_thr
                                                                                       np.arange(traj.n_frames)[
                                                                                       :max_len:subsample]))
             list_of_pandas_series.extend(out)
-            now = _datetime_windows_and_linux_compatible()
+            now = datetime_windows_and_linux_compatible()
             df_name = os.path.join(df_outdir, f"{now}{suffix}")
             df = pd.concat(list_of_pandas_series, axis=1).T
             df.to_csv(df_name)
