@@ -17,7 +17,7 @@ xplor.functions.write_argparse_lines_from_yaml_or_dict(print_argparse=True)
 # traj_file = xplor.functions.get_local_or_proj_file('data/2017_06_28_GfM_SMmin_rnd_k6_0_start.pdb')
 # traj = md.load(traj_file)
 # series = xplor.functions.get_prox_dist_from_mdtraj(traj, traj_file, traj_file, 0, from_tmp=True)
-out2 = xplor.functions.parallel_xplor(['k6', 'k29', 'k33'], from_tmp=True, max_len=-1)
+out2 = xplor.functions.parallel_xplor(['k6', 'k29', 'k33'], from_tmp=True, max_len=20)
 
 # %% Test the series function
 series = xplor.functions.get_prox_dist_from_mdtraj(traj, traj_file, traj_file, 0, from_tmp=True)
@@ -25,12 +25,9 @@ columns = set(xplor.proteins.get_column_names_from_pdb() + ['traj_file', 'top_fi
 assert columns == set(series.keys()), print(set(series.keys()).difference(columns))
 
 # %%
-test = np.arange(200)[::50]
-print(test)
+out2
 
 # %% Test pandas concatenation
-df = pd.concat(out2, axis=1).T
-columns = set(xplor.proteins.get_column_names_from_pdb() + ['traj_file', 'top_file', 'frame', 'time'])
-assert columns == set(df.keys()), print(set(df.keys()).difference(columns))
-df
+columns = set(xplor.proteins.get_column_names_from_pdb() + ['traj_file', 'top_file', 'frame', 'time', 'ubq_site', 'basename'])
+assert columns == set(out2.keys()), print(set(out2.keys()).difference(columns))
 

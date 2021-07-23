@@ -15,6 +15,7 @@ def datetime_windows_and_linux_compatible():
     elif platform == "win32":
         return datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
 
+
 def get_local_or_proj_file(files):
     """Gets a file either from local storage or from project files.
 
@@ -45,6 +46,22 @@ def get_local_or_proj_file(files):
         return glob_files[0]
     else:
         return glob_files
+
+
+def is_aa_sim(file):
+    """From a traj_nojump.xtc, decides, whether sim is an aa sim."""
+    directory = '/'.join(file.split('/')[:-1])
+    contents = os.listdir(directory)
+    gro_file = os.path.join(directory, 'start.gro')
+    with open(gro_file, 'r') as f:
+        content = f.read()
+    if 'MARTINI' in content:
+        return False
+    elif 'Protein in water' in content:
+        return True
+    else:
+        print(content)
+        raise Exception("Can not decide whether sim is AA or CG.")
 
 
 def write_argparse_lines_from_yaml_or_dict(input='', print_argparse=False):
@@ -631,31 +648,29 @@ def parallel_xplor(ubq_sites, simdir='/home/andrejb/Research/SIMS/2017_*', n_thr
     elif n_threads == 'max':
         n_threads = multiprocessing.cpu_count()
 
-    # store output here
-    list_of_pandas_series = []
-
     # get list of already existing dfs
     files = glob.glob(f'{df_outdir}*{suffix}')
     highest_datetime_csv = sorted(files, key=get_iso_time)[-1]
-    check_df = pd.read_csv(highest_datetime_csv, index_col=0)
-
-    raise Exception("STOP")
+    df = pd.read_csv(highest_datetime_csv, index_col=0)
 
     # run loop
     for i, ubq_site in enumerate(ubq_sites):
         for j, dir_ in enumerate(glob.glob(f"{simdir}{ubq_site}_*")):
             traj_file = dir_ + '/traj_nojump.xtc'
+            if not is_aa_sim(traj_file):
+                print(f"{traj_file} is not an AA sim")
+                continue
             basename = traj_file.split('/')[-2]
             top_file = dir_ + '/start.pdb'
             traj = md.load(traj_file, top=top_file)
 
             # check if traj is complete
             try:
-                value_counts = pd.value_counts(check_df['traj_file'])
+                value_counts = pd.value_counts(df['traj_file'])
                 frames = value_counts[traj_file]
             except KeyError:
                 frames = 0
-            if frames == traj[::subsample].n_frames:
+            if frames >= traj[:max_len:subsample].n_frames:
                 print(f"traj {basename} already finished")
                 continue
             else:
@@ -673,8 +688,7 @@ def parallel_xplor(ubq_sites, simdir='/home/andrejb/Research/SIMS/2017_*', n_thr
                         if a.name == 'NQ': a.name = 'NZ'
                         if a.name == 'HQ': a.name = 'HZ1'
 
-
-
+            # parallel call
             out = Parallel(n_jobs=n_threads, prefer='threads')(delayed(get_prox_dist_from_mdtraj)(frame,
                                                                                                   traj_file,
                                                                                                   top_file,
@@ -686,10 +700,11 @@ def parallel_xplor(ubq_sites, simdir='/home/andrejb/Research/SIMS/2017_*', n_thr
                                                                frame, frame_no in zip(traj[:max_len:subsample],
                                                                                       np.arange(traj.n_frames)[
                                                                                       :max_len:subsample]))
-            list_of_pandas_series.extend(out)
+
+            # continue working with output
             now = datetime_windows_and_linux_compatible()
             df_name = os.path.join(df_outdir, f"{now}{suffix}")
-            df = pd.concat(list_of_pandas_series, axis=1).T
+            df = df.append(out, ignore_index=True)
             df.to_csv(df_name)
     return df
 
@@ -732,8 +747,6 @@ def get_prox_dist_from_mdtraj(frame, traj_file, top_file, frame_no, testing=Fals
     data.update(columns)
     series = pd.Series(data=data)
 
-    basename, ubq_site = get_ubq_site_and_basename(traj_file)
-
     should_be_residue_number = frame.n_residues
     
     # get data
@@ -772,6 +785,7 @@ def get_prox_dist_from_mdtraj(frame, traj_file, top_file, frame_no, testing=Fals
         elif o[0] == 'psol':
             series[f'{position} {resname}{resSeq} sPRE'] = o[2]
 
+    basename, ubq_site = get_ubq_site_and_basename(traj_file)
     series['basename'] = basename
     series['ubq_site'] = ubq_site
             
