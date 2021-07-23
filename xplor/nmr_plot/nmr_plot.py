@@ -184,7 +184,7 @@ def plot_line_data(axes, df, df_index, color='C1', positions=['proximal', 'dista
     return out
 
 
-def plot_minmax_envelope(axes, df, df_index, color='lightgrey', positions=['proximal', 'distal']):
+def plot_minmax_envelope(axes, df, df_index, color='lightgrey', alpha=0.8, positions=['proximal', 'distal']):
     df = df[df['ubq_site'] == df_index['cols']]
     out = []
     for ax, position in zip(axes, positions):
@@ -196,7 +196,7 @@ def plot_minmax_envelope(axes, df, df_index, color='lightgrey', positions=['prox
         min_, max_ = np.min(data, axis=0), np.max(data, axis=0)
         assert len(min_) == len(ax.get_xticks()), print(len(min_), int(ax.get_xlim()[1] + 1), ax.get_xticks()[-1] + 1)
         assert len(max_) == len(ax.get_xticks())
-        _ = ax.fill_between(np.arange(len(min_)), min_, max_, color=color)
+        _ = ax.fill_between(np.arange(len(min_)), min_, max_, color=color, alpha=alpha)
         out.append(ax)
     return out
 
@@ -210,7 +210,7 @@ def plot_hatched_bars(axes, df, df_index, color='lightgrey', alpha=0.3, position
         assert len(data) == len(ax.get_xticks())
         for i, is_fast in enumerate(data):
             if is_fast:
-                _ = ax.axvspan(i - 0.5, i + 0.5, alpha=alpha, color=color, hatch='//', zorder=-5)
+                _ = ax.axvspan(i - 0.5, i + 0.5, alpha=alpha, fc='none', ec='lightgrey', hatch='//', zorder=-5)
         out.append(ax)
     return out
 
@@ -241,7 +241,7 @@ def fake_legend(ax, dict_of_fake_labels):
                 legend_elements.append(legend_element)
         elif type_ == 'hatchbar':
             for element in elements:
-                legend_element = func_dict[type_](color=element['color'], label=element['label'], hatch=element['hatch'], alpha=element['alpha'])
+                legend_element = func_dict[type_](fc='none', ec=element['color'], label=element['label'], hatch=element['hatch'], alpha=element['alpha'])
                 legend_elements.append(legend_element)
         elif type_ == 'text':
             for element in elements:
@@ -250,7 +250,10 @@ def fake_legend(ax, dict_of_fake_labels):
         else:
             print(f"Unknown label type {type_}")
 
-    ax.legend(handles=legend_elements, loc='upper center', ncol=len(legend_elements), handler_map={legend_element_text: AnyObjectHandler()})
+    if 'text' in dict_of_fake_labels:
+        ax.legend(handles=legend_elements, loc='upper center', ncol=len(legend_elements), handler_map={legend_element_text: AnyObjectHandler()})
+    else:
+        ax.legend(handles=legend_elements, loc='upper center', ncol=len(legend_elements))
 
     return ax
 
