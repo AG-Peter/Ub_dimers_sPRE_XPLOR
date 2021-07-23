@@ -17,7 +17,7 @@ xplor.functions.write_argparse_lines_from_yaml_or_dict(print_argparse=True)
 # traj_file = xplor.functions.get_local_or_proj_file('data/2017_06_28_GfM_SMmin_rnd_k6_0_start.pdb')
 # traj = md.load(traj_file)
 # series = xplor.functions.get_prox_dist_from_mdtraj(traj, traj_file, traj_file, 0, from_tmp=True)
-out2 = xplor.functions.parallel_xplor(['k6', 'k29', 'k33'], from_tmp=True, max_len=100)
+out2 = xplor.functions.parallel_xplor(['k6', 'k29', 'k33'], from_tmp=True, max_len=-1)
 
 # %% Test the series function
 series = xplor.functions.get_prox_dist_from_mdtraj(traj, traj_file, traj_file, 0, from_tmp=True)

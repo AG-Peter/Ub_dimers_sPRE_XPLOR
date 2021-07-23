@@ -491,6 +491,35 @@ def prepare_pdb_for_gmx(file, verification=None):
             f.write(line)
 
 
+def get_ubq_site_and_basename(traj_file):
+    """Returns ubq_site and basename for a traj_file."""
+    basename = traj_file.split('/')[-2]
+    substrings = basename.split('_')
+    try:
+        ubq_site = substrings[[substr.startswith('k') for substr in substrings].index(True)]
+    except ValueError:
+        print(basename)
+        raise
+    return basename, ubq_site
+
+
+def get_iso_time(in_str):
+    """Returns the datetime of a file that starts with an iso time.
+
+    For example this one:
+        '/path/to/file/2021-07-23T04:10:27+02:00_df_no_conect.csv'
+
+    Args:
+        in_str (str): The filename
+
+    Returns:
+        datetime.time: A datetime timestamp.
+
+    """
+    time = dateutil.parser.isoparse(os.path.split(in_str)[-1].split('_')[0])
+    return time
+
+
 def call_xplor_with_yaml(pdb_file, yaml_file='', from_tmp=False, testing=False, **kwargs):
     """Calls the xplor script with values from a yaml file.
 
@@ -560,6 +589,7 @@ def call_xplor_with_yaml(pdb_file, yaml_file='', from_tmp=False, testing=False, 
 
 def parallel_xplor(ubq_sites, simdir='/home/andrejb/Research/SIMS/2017_*', n_threads='max-2',
                    df_outdir='/home/kevin/projects/tobias_schneider/values_from_every_frame/from_package/',
+                   suffix = '_df_no_conect.csv',
                    subsample=5, yaml_file='', testing=False, from_tmp=False, max_len=-1, **kwargs):
     """Runs xplor on many simulations in parallel.
 
@@ -573,6 +603,10 @@ def parallel_xplor(ubq_sites, simdir='/home/andrejb/Research/SIMS/2017_*', n_thr
             Can be an int, but also 'max' or 'max-2', where 'max' will give
             make this function use the maximum number of cores. 'max-2' will use
             all but 2 cores. Defaults to 'max-2'
+        df_outdir (str, optional): Where to save the csv files to. Defaults to
+            '/home/kevin/projects/tobias_schneider/values_from_every_frame/from_package/'.
+        suffix (str, optional): Suffix of the csv files, used to sort different
+            runs. Defaults to '_df_no_conect.csv'.
         subsample (int, optional): Whether to subsample trajectories. Give an
             int and only use every `subsample`-th frame. Defaults to 5.
         max_len (int, optional): Only go to that maximum length of a trajectory.
@@ -596,13 +630,36 @@ def parallel_xplor(ubq_sites, simdir='/home/andrejb/Research/SIMS/2017_*', n_thr
         n_threads = multiprocessing.cpu_count() - 2
     elif n_threads == 'max':
         n_threads = multiprocessing.cpu_count()
+
+    # store output here
     list_of_pandas_series = []
+
+    # get list of already existing dfs
+    files = glob.glob(f'{df_outdir}*{suffix}')
+    highest_datetime_csv = sorted(files, key=get_iso_time)[-1]
+    check_df = pd.read_csv(highest_datetime_csv, index_col=0)
+
+    raise Exception("STOP")
+
+    # run loop
     for i, ubq_site in enumerate(ubq_sites):
-        for j, dir_ in enumerate(glob.glob(f"{simdir}{ubq_site}*")):
+        for j, dir_ in enumerate(glob.glob(f"{simdir}{ubq_site}_*")):
             traj_file = dir_ + '/traj_nojump.xtc'
             basename = traj_file.split('/')[-2]
             top_file = dir_ + '/start.pdb'
             traj = md.load(traj_file, top=top_file)
+
+            # check if traj is complete
+            try:
+                value_counts = pd.value_counts(check_df['traj_file'])
+                frames = value_counts[traj_file]
+            except KeyError:
+                frames = 0
+            if frames == traj[::subsample].n_frames:
+                print(f"traj {basename} already finished")
+                continue
+            else:
+                print(f"traj {basename} NOT FINISHED")
 
             for r in traj.top.residues:
                 if r.index > 75 and r.resSeq < 76:
@@ -615,6 +672,8 @@ def parallel_xplor(ubq_sites, simdir='/home/andrejb/Research/SIMS/2017_*', n_thr
                         if a.name == 'CQ': a.name = 'CE'
                         if a.name == 'NQ': a.name = 'NZ'
                         if a.name == 'HQ': a.name = 'HZ1'
+
+
 
             out = Parallel(n_jobs=n_threads, prefer='threads')(delayed(get_prox_dist_from_mdtraj)(frame,
                                                                                                   traj_file,
@@ -629,10 +688,10 @@ def parallel_xplor(ubq_sites, simdir='/home/andrejb/Research/SIMS/2017_*', n_thr
                                                                                       :max_len:subsample]))
             list_of_pandas_series.extend(out)
             now = _datetime_windows_and_linux_compatible()
-            df_name = os.path.join(df_outdir, f"{now}_df_no_conect.csv")
+            df_name = os.path.join(df_outdir, f"{now}{suffix}")
             df = pd.concat(list_of_pandas_series, axis=1).T
             df.to_csv(df_name)
-    return list_of_pandas_series
+    return df
 
 
 def get_prox_dist_from_mdtraj(frame, traj_file, top_file, frame_no, testing=False, from_tmp=False, yaml_file='', **kwargs):
@@ -672,10 +731,8 @@ def get_prox_dist_from_mdtraj(frame, traj_file, top_file, frame_no, testing=Fals
     columns = {column_name: np.nan for column_name in column_names}
     data.update(columns)
     series = pd.Series(data=data)
-    
-    # [y for x in non_flat for y in x]
-    substrings = [item for part in traj_file.split('/') for item in part.split('_')]
-    ubq_site = substrings[[substr.startswith('k') for substr in substrings].index(True)]
+
+    basename, ubq_site = get_ubq_site_and_basename(traj_file)
 
     should_be_residue_number = frame.n_residues
     
@@ -714,5 +771,8 @@ def get_prox_dist_from_mdtraj(frame, traj_file, top_file, frame_no, testing=Fals
             series[f'{position} {resname}{resSeq} 15N_relax_800'] = o[2]
         elif o[0] == 'psol':
             series[f'{position} {resname}{resSeq} sPRE'] = o[2]
+
+    series['basename'] = basename
+    series['ubq_site'] = ubq_site
             
     return series
