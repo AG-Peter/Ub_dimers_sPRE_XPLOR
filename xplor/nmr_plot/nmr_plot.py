@@ -184,6 +184,9 @@ def plot_line_data(axes, df, df_index, color='C1', positions=['proximal', 'dista
     return out
 
 
+def plot
+
+
 def plot_minmax_envelope(axes, df, df_index, color='lightgrey', alpha=0.8, positions=['proximal', 'distal']):
     df = df[df['ubq_site'] == df_index['cols']]
     out = []

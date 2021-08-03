@@ -1546,19 +1546,19 @@ def _defaultGromacsIncludeDir():
         return os.path.join(os.environ['GMXDATA'], 'top')
     if 'GMXBIN' in os.environ:
         return os.path.abspath(
-            os.path.join(os.environ['GMXBIN'], '..', 'share', 'gromacs',
+            os.path.join(os.environ['GMXBIN'], '../..', 'share', 'gromacs',
                          'top'))
 
     pdb2gmx_path = distutils.spawn.find_executable('pdb2gmx')
     if pdb2gmx_path is not None:
         return os.path.abspath(
-            os.path.join(os.path.dirname(pdb2gmx_path), '..', 'share',
+            os.path.join(os.path.dirname(pdb2gmx_path), '../..', 'share',
                          'gromacs', 'top'))
     else:
         gmx_path = distutils.spawn.find_executable('gmx')
         if gmx_path is not None:
             return os.path.abspath(
-                os.path.join(os.path.dirname(gmx_path), '..', 'share',
+                os.path.join(os.path.dirname(gmx_path), '../..', 'share',
                              'gromacs', 'top'))
 
     return '/usr/local/gromacs/share/gromacs/top'
