@@ -145,7 +145,7 @@ def main(**kwargs):
                 if isinstance(value, bool) and value:
                     if key == 'setVerbose':
                         getattr(psol, key)(True)
-                    # getattr(psol, key)()
+                    # getattr(psol, key)() # currently not working
                 else:
                     getattr(psol, key)(value)
 

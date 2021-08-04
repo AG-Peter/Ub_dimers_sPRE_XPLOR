@@ -1,7 +1,7 @@
 import unittest
 import mdtraj as md
 import numpy as np
-from xplor.functions import get_prox_dist_from_mdtraj
+from xplor.functions import get_series_from_mdtraj
 from xplor.proteins import get_column_names_from_pdb
 
 class TestXPLORCorrectColumns(unittest.TestCase):
@@ -22,7 +22,7 @@ class TestXPLORCorrectColumns(unittest.TestCase):
         frame_no = 0
         frame = md.load_frame(traj_file, frame_no, top=top_file)
 
-        series = get_prox_dist_from_mdtraj(frame, traj_file, top_file, frame_no, testing=True)
+        series = get_series_from_mdtraj(frame, traj_file, top_file, frame_no, testing=True)
         sPRE_cols = [c for c in series.index if 'sPRE' in c]
         N15_600 = [c for c in series.index if '600' in c]
         N15_800 = [c for c in series.index if '800' in c]

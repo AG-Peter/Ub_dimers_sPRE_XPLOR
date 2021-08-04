@@ -2,6 +2,54 @@
 import xplor
 import pandas as pd
 import matplotlib.pyplot as plt
+import MDAnalysis as mda
+import mdtraj as md
+import glob
+import parmed as pmd
+
+# %% List dirs
+# glob.glob('/home/andrejb/Research/SIMS/2017_04_27_G_2ub_k6_01_01/*')
+
+# %% Try ParmEd
+from xplor.functions.custom_gromacstopfile import CustomGromacsTopFile
+from MDAnalysis.converters.OpenMMParser import OpenMMTopologyParser
+pdb = '/home/andrejb/Research/SIMS/2017_04_27_G_2ub_k6_01_01/start.pdb'
+top = '/home/andrejb/Research/SIMS/2017_04_27_G_2ub_k6_01_01/traj.top'
+xtc = '/home/andrejb/Research/SIMS/2017_04_27_G_2ub_k6_01_01/traj.xtc'
+
+omm_top = CustomGromacsTopFile('/home/andrejb/Software/custom_tools/topology_builder/topologies/gromos54a7-isop/diUBQ_K6/system.top',
+                              includeDir='/home/andrejb/Software/gmx_forcefields')
+
+struct = pmd.openmm.load_topology(omm_top.topology)
+traj = md.load(pdb)
+traj.top = md.Topology.from_openmm(omm_top.topology)
+
+struct.save('/home/kevin/projects/tobias_schneider/test_CONECT/2017_04_27_G_2ub_k6_01_01_start_w_parmed.psf',
+            format='psf', overwrite=True)
+
+struct.coordinates = traj.xyz * 10
+
+struct.save('/home/kevin/projects/tobias_schneider/test_CONECT/2017_04_27_G_2ub_k6_01_01_start_w_parmed.pdb',
+            format='pdb', overwrite=True)
+
+
+# %% Try MDAnalysis save psf and check
+from xplor.functions.custom_gromacstopfile import CustomGromacsTopFile
+from MDAnalysis.converters.OpenMMParser import OpenMMTopologyParser
+pdb = '/home/andrejb/Research/SIMS/2017_04_27_G_2ub_k6_01_01/start.pdb'
+top = '/home/andrejb/Research/SIMS/2017_04_27_G_2ub_k6_01_01/traj.top'
+xtc = '/home/andrejb/Research/SIMS/2017_04_27_G_2ub_k6_01_01/traj.xtc'
+
+traj = md.load(pdb)
+for i in dir(traj):
+    if i.startswith('save'):
+        print(i)
+
+omm_top = CustomGromacsTopFile('/home/andrejb/Software/custom_tools/topology_builder/topologies/gromos54a7-isop/diUBQ_K6/system.top',
+                              includeDir='/home/andrejb/Software/gmx_forcefields')
+top = OpenMMTopologyParser(omm_top.topology)
+u = mda.Universe(pdb, xtc)
+u._topology = top._mda_topology_from_omm_topology(omm_top.topology)
 
 # %% make the tbl files
 # xplor.functions.parse_input_files.make_15_N_table('data/spre_and_relaxation_data_k6_k29/relaxation_file_ub2_k6.txt',
@@ -16,11 +64,11 @@ import matplotlib.pyplot as plt
 # xplor.functions.call_xplor_with_yaml('data/2017_06_28_GfM_SMmin_rnd_k6_0_start.pdb', from_tmp=True)
 # traj_file = xplor.functions.get_local_or_proj_file('data/2017_06_28_GfM_SMmin_rnd_k6_0_start.pdb')
 # traj = md.load(traj_file)
-# series = xplor.functions.get_prox_dist_from_mdtraj(traj, traj_file, traj_file, 0, from_tmp=True)
+# series = xplor.functions.get_series_from_mdtraj(traj, traj_file, traj_file, 0, from_tmp=True)
 out2 = xplor.functions.parallel_xplor(['k6'], from_tmp=True, max_len=20, write_csv=False, testing=True)
 
 # %% Test the series function
-series = xplor.functions.get_prox_dist_from_mdtraj(traj, traj_file, traj_file, 0, from_tmp=True)
+series = xplor.functions.get_series_from_mdtraj(traj, traj_file, traj_file, 0, from_tmp=True)
 columns = set(xplor.proteins.get_column_names_from_pdb() + ['traj_file', 'top_file', 'frame', 'time'])
 assert columns == set(series.keys()), print(set(series.keys()).difference(columns))
 

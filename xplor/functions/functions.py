@@ -17,7 +17,7 @@ from ..misc import get_local_or_proj_file, get_iso_time
 # Globals
 ################################################################################
 
-__all__ = ['parallel_xplor', 'get_prox_dist_from_mdtraj', 'call_xplor_with_yaml',
+__all__ = ['parallel_xplor', 'get_series_from_mdtraj', 'call_xplor_with_yaml',
            'normalize_sPRE']
 
 ################################################################################
@@ -238,6 +238,16 @@ def parallel_xplor(ubq_sites, simdir='/home/andrejb/Research/SIMS/2017_*', n_thr
                    subsample=5, yaml_file='', testing=False, from_tmp=False, max_len=-1, **kwargs):
     """Runs xplor on many simulations in parallel.
 
+    This function is somewhat specific and there are some hardcoded directories
+    in it. It uses MDTraj and OpenMM to load trajectories from Andrej's sim
+    directory (/home/andrejb/Research/SIMS/). These trajectories are provided
+    in a joblib Parallel/delayed construct to `get_series_from_mdtraj`, which
+    results in a list of pandas Series, that are stacked to a long dataframe.
+
+    The dataframe is periodically saved (to not loose anything). Check out the
+    function `xplor.delete_old_csvs` to remove the unwanted intermediate csvs,
+    produced by this function.
+
     Args:
         ubq_sites (list): A list of ubiquitination sites, that should be recognized.
 
@@ -329,14 +339,14 @@ def parallel_xplor(ubq_sites, simdir='/home/andrejb/Research/SIMS/2017_*', n_thr
                         if a.name == 'HQ': a.name = 'HZ1'
 
             # parallel call
-            out = Parallel(n_jobs=n_threads, prefer='threads')(delayed(get_prox_dist_from_mdtraj)(frame,
-                                                                                                  traj_file,
-                                                                                                  top_file,
-                                                                                                  frame_no,
-                                                                                                  testing=testing,
-                                                                                                  from_tmp=from_tmp,
-                                                                                                  yaml_file=yaml_file,
-                                                                                                  **kwargs) for
+            out = Parallel(n_jobs=n_threads, prefer='threads')(delayed(get_series_from_mdtraj)(frame,
+                                                                                               traj_file,
+                                                                                               top_file,
+                                                                                               frame_no,
+                                                                                               testing=testing,
+                                                                                               from_tmp=from_tmp,
+                                                                                               yaml_file=yaml_file,
+                                                                                               **kwargs) for
                                                                frame, frame_no in zip(traj[:max_len:subsample],
                                                                                       np.arange(traj.n_frames)[
                                                                                       :max_len:subsample]))
@@ -352,11 +362,112 @@ def parallel_xplor(ubq_sites, simdir='/home/andrejb/Research/SIMS/2017_*', n_thr
     return df
 
 
-def get_prox_dist_from_mdtraj(frame, traj_file, top_file, frame_no, testing=False, from_tmp=False, yaml_file='', **kwargs):
+def get_series_mdanalysis(frame, traj_file, top_file, frame_no, testing=False, from_tmp=False, yaml_file='', **kwargs):
+    """Similar to `get_series_from_mdtraj`, but using MDAnalysis and saving a psf file.
+    
+    Arguments for XPLOR can be provided by either specifying a yaml file, or
+    providing them as keyword_args to this function. For example you can use
+    provide `psol_call_parameters_tauc = 0.4` to set the correlation time of the
+    psol potential to 0.4. The difference between `psol_call_parameters_tauc`
+    and `psol_set_parameters_TauC` is, that the first is provided to psol, when
+    it is instantiated (called):
+
+    ```python
+    psol = create_PSolPot(name=kwargs['psol_call_parameters_name'],
+                          file=kwargs['psol_call_parameters_restraints'],
+                          tauc=kwargs['psol_call_parameters_tauc'],
+                          ...)
+    ```
+
+    The other is provided in a for loop with call signatures similar to:
+
+    ```python
+    prefix = 'psol_set_parameters_'
+    for key, value in kwargs.items():
+    if key.startswith(prefix):
+        key = 'set' + key.replace(prefix, '')
+        if isinstance(value, bool) and value:
+            if key == 'setVerbose':
+                getattr(psol, key)(True)
+            # getattr(psol, key)() # currently not working
+        else:
+            getattr(psol, key)(value)
+    ```
+
+    In this code block the parameters that are set with code like this:
+
+    ```python
+    psol.setTauC(0.4)
+    psol.setGammaI(26.752196)
+    ```
+
+    are set.
+
+    Args:
+        frame (md.Trajectory): An `mdtraj.core.Trajectory` instance with 1 frame.
+        traj_file (str): The location of the original trajectory.
+        top_file (str): The location of the original topology.
+        frame_no (int): The frame number the trajectory originates from.
+
+    Keyword Args:
+        yaml_file (str, optional): Path to a yaml file. If an empty string is provided
+            the defaults.yml file from xplor/data is loaded. Defaults to ''.
+        from_tmp (bool, optional): Changes the executable of the command to
+            work with an ssh interpreter to 134.34.112.158. If set to false,
+            the executable will be taken from xplor/scripts.
+            Defaults to False
+        testing (bool, optional): Adds the '-testing' flag to the command.
+            Defaults to False.
+        **kwargs: Arbitrary keyword arguments. Keywords that are not flags
+            of the xplor/scripts/xplor_single_struct_script.py will be discarded.
+    
+    Returns:
+        pd.Series: A pandas series instance
+    
+    """
+    pass
+
+
+def get_series_from_mdtraj(frame, traj_file, top_file, frame_no, testing=False, from_tmp=False, yaml_file='', **kwargs):
     """Saves a temporary pdb file which will then be passed to call_xplor_with_yaml
 
     Arguments for XPLOR can be provided by either specifying a yaml file, or
-    providing them as keyword_args to this function.
+    providing them as keyword_args to this function. For example you can use
+    provide `psol_call_parameters_tauc = 0.4` to set the correlation time of the
+    psol potential to 0.4. The difference between `psol_call_parameters_tauc`
+    and `psol_set_parameters_TauC` is, that the first is provided to psol, when
+    it is instantiated (called):
+
+    ```python
+    psol = create_PSolPot(name=kwargs['psol_call_parameters_name'],
+                          file=kwargs['psol_call_parameters_restraints'],
+                          tauc=kwargs['psol_call_parameters_tauc'],
+                          ...)
+    ```
+
+    The other is provided in a for loop with call signatures similar to:
+
+    ```python
+    prefix = 'psol_set_parameters_'
+    for key, value in kwargs.items():
+    if key.startswith(prefix):
+        key = 'set' + key.replace(prefix, '')
+        if isinstance(value, bool) and value:
+            if key == 'setVerbose':
+                getattr(psol, key)(True)
+            # getattr(psol, key)() # currently not working
+        else:
+            getattr(psol, key)(value)
+    ```
+
+    In this code block the parameters that are set with code like this:
+
+    ```python
+    psol.setTauC(0.4)
+    psol.setGammaI(26.752196)
+    ```
+
+    are set.
 
     Args:
         frame (md.Trajectory): An `mdtraj.core.Trajectory` instance with 1 frame.

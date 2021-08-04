@@ -184,7 +184,16 @@ def plot_line_data(axes, df, df_index, color='C1', positions=['proximal', 'dista
     return out
 
 
-def plot
+def plot_boxplots():
+    pass
+
+
+def plot_many_lines_w_alpha():
+    pass
+
+
+def plot_confidence_intervals():
+    pass
 
 
 def plot_minmax_envelope(axes, df, df_index, color='lightgrey', alpha=0.8, positions=['proximal', 'distal']):
