@@ -25,7 +25,7 @@ from simtk.openmm.app import PDBFile
 ################################################################################
 
 __all__ = ['parallel_xplor', 'get_series_from_mdtraj', 'call_xplor_with_yaml',
-           'normalize_sPRE', 'get_series_with_conect', 'test_conect']
+           'normalize_sPRE', 'test_conect']
 
 
 ################################################################################
