@@ -7,6 +7,11 @@ import mdtraj as md
 import glob, os
 import parmed as pmd
 
+# %%
+test = 'tmp_traj_nojump_frame_95_hash_481079684092461366.psf'
+print(test.split('_')[:5])
+
+
 # %% List dirs
 # glob.glob('/home/andrejb/Research/SIMS/2017_04_27_G_2ub_*/')
 os.listdir('/home/andrejb/Research/SIMS/2017_04_27_G_2ub_m1_01_01/')
@@ -26,6 +31,51 @@ xtc = '/home/andrejb/Research/SIMS/2017_04_27_G_2ub_k6_01_01/traj_nojump.xtc'
 
 xplor.functions.test_conect(xtc, pdb, remove_after=True, ast_print=0)
 
+# %% Explore Error with
+# 2017_04_27_G_2ub_k6_01_02
+# /tmp/pycharm_project_462/tmp_traj_nojump_frame_1740_hash_4981682028013484614.pdb
+from xplor.functions.functions import Capturing
+from xplor.functions.custom_gromacstopfile import CustomGromacsTopFile
+
+pdb = '/home/andrejb/Research/SIMS/2017_04_27_G_2ub_k6_01_02/start.pdb'
+xtc = '/home/andrejb/Research/SIMS/2017_04_27_G_2ub_k6_01_02/traj_nojump.xtc'
+
+frame = md.load_frame(xtc, 1740, top=pdb)
+
+gromos_top_file = f'/home/andrejb/Research/DEVA/2017_04_27_UBQ_TOPOLOGIES/top_G54A7/diUBQ/k6_01/system.top'
+with Capturing() as output:
+    omm_top = CustomGromacsTopFile(gromos_top_file, includeDir='/home/andrejb/Software/gmx_forcefields')
+
+frame.top = md.Topology.from_openmm(omm_top.topology)
+
+isopeptide_bonds = []
+isopeptide_indices = []
+for r in frame.top.residues:
+    if r.name == 'GLQ':
+        r.name = 'GLY'
+        for a in r.atoms:
+            if a.name == 'C':
+                isopeptide_indices.append(a.index + 1)
+                isopeptide_bonds.append(f"{a.residue.name} {a.residue.resSeq} {a.name}")
+    if r.name == 'LYQ':
+        r.name = 'LYS'
+        for a in r.atoms:
+            if a.name == 'CQ': a.name = 'CE'
+            if a.name == 'NQ':
+                a.name = 'NZ'
+                isopeptide_indices.append(a.index + 1)
+                isopeptide_bonds.append(f"{a.residue.name} {a.residue.resSeq} {a.name}")
+            if a.name == 'HQ': a.name = 'HZ1'
+
+series = xplor.functions.get_series_from_mdtraj(frame, xtc, pdb, 0, from_tmp=True,
+                                                check_fix_isopeptides=True, isopeptide_bonds=isopeptide_bonds)
+
+# %% This works without problems. Something else must cause the error:
+
+_ = xplor.functions.parallel_xplor(['k6', 'k11', 'k33'], from_tmp=True, max_len=-1, write_csv=False,
+                                      df_outdir='/home/kevin/projects/tobias_schneider/values_from_every_frame/from_package_with_conect/',
+                                      suffix='_df.csv', specific_index=1740, break_early=True)
+print(_)
 
 # %% make the tbl files
 # xplor.functions.parse_input_files.make_15_N_table('data/spre_and_relaxation_data_k6_k29/relaxation_file_ub2_k6.txt',
@@ -36,14 +86,18 @@ xplor.functions.test_conect(xtc, pdb, remove_after=True, ast_print=0)
 # %% Write arparse lines
 # xplor.argparse.write_argparse_lines_from_yaml_or_dict(print_argparse=True)
 
-# %% run on all files
+# %% develop a get_series function
 # xplor.functions.call_xplor_with_yaml('data/2017_06_28_GfM_SMmin_rnd_k6_0_start.pdb', from_tmp=True)
 traj_file = xplor.misc.get_local_or_proj_file('data/2017_06_28_GfM_SMmin_rnd_k6_0_start.pdb')
 traj = md.load(traj_file)
 isopeptide_bonds_for_k6 = ['GLY 76 C', 'LYS 82 NZ']
-# series = xplor.functions.get_series_from_mdtraj(traj, traj_file, traj_file, 0, from_tmp=True,
-#                                                 check_fix_isopeptides=True, isopeptide_bonds=isopeptide_bonds_for_k6)
-out2 = xplor.functions.parallel_xplor(['k6'], from_tmp=True, max_len=20, write_csv=False, testing=False)
+series = xplor.functions.get_series_from_mdtraj(traj, traj_file, traj_file, 0, from_tmp=True,
+                                                check_fix_isopeptides=True, isopeptide_bonds=isopeptide_bonds_for_k6)
+
+# %% Run on everything
+_ = xplor.functions.parallel_xplor(['k6', 'k11', 'k33'], from_tmp=True, max_len=-1, write_csv=False,
+                                  df_outdir='/home/kevin/projects/tobias_schneider/values_from_every_frame/from_package_with_conect/',
+                                  suffix='_df.csv')
 
 # %%
 print(os.listdir())

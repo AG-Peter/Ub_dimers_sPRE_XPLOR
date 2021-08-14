@@ -268,15 +268,25 @@ def call_xplor_with_yaml(pdb_file, psf_file=None, yaml_file='', from_tmp=False,
     err = err.decode(sys.stdin.encoding)
     if return_code > 0:
         print(out)
-        raise Exception(f"Call to subprocess did not succeed. Here's the error: {err}, and the return code: {return_code}")
+        pdb_save = os.path.join(os.getcwd(), '_'.join(pdb_file.split('_')[:5]) + '.pdb')
+        shutil.copyfile(pdb_file, pdb_save)
+        psf_save = 'Protocol did not use psf file.'
+        if psf_file is not None:
+            psf_save = pdb_save.replace('.pdb', '.psf')
+            shutil.copyfile(psf_file, psf_save)
+        raise Exception(f"Call to subprocess using pdb file {pdb_file} did not succeed."
+                        f"Here's the error: {err}, and the return code: {return_code}. I"
+                        f"saved the files that causes this error here:"
+                        f"pdb: {pdb_save},"
+                        f"psf: {psf_save}")
     out = out.split('findImportantAtoms: done')[1]
     return out
 
 
 def parallel_xplor(ubq_sites, simdir='/home/andrejb/Research/SIMS/2017_*', n_threads='max-2',
                    df_outdir='/home/kevin/projects/tobias_schneider/values_from_every_frame/from_package/',
-                   suffix = '_df_no_conect.csv', write_csv=True, fix_isopeptides=True,
-                   subsample=5, yaml_file='', testing=False, from_tmp=False, max_len=-1, **kwargs):
+                   suffix='_df_no_conect.csv', write_csv=True, fix_isopeptides=True, specific_index=None,
+                   subsample=5, yaml_file='', testing=False, from_tmp=False, max_len=-1, break_early=False, **kwargs):
     """Runs xplor on many simulations in parallel.
 
     This function is somewhat specific and there are some hardcoded directories
@@ -317,6 +327,10 @@ def parallel_xplor(ubq_sites, simdir='/home/andrejb/Research/SIMS/2017_*', n_thr
             Defaults to False
         testing (bool, optional): Adds the '-testing' flag to the command.
             Defaults to False.
+        specific_index (Union[int, None], optional): If given, only that Index will
+            be used in the parallel loop. For Debugging. Defaults to None.
+        break_early (bool, optional): Whether to break the for loop early, stopping the
+            calculation after one loop. Defaults to False.
         fix_isopeptides (bool, optional): Whether to fix isopeptide bonds using the
             technique developed in `check_conect`. Defaults to True.
         **kwargs: Arbitrary keyword arguments. Keywords that are not flags
@@ -336,7 +350,7 @@ def parallel_xplor(ubq_sites, simdir='/home/andrejb/Research/SIMS/2017_*', n_thr
 
     # get list of already existing dfs
     files = glob.glob(f'{df_outdir}*{suffix}')
-    if files and write_csv:
+    if files:
         highest_datetime_csv = sorted(files, key=get_iso_time)[-1]
         df = pd.read_csv(highest_datetime_csv, index_col=0)
     else:
@@ -389,19 +403,32 @@ def parallel_xplor(ubq_sites, simdir='/home/andrejb/Research/SIMS/2017_*', n_thr
                         if a.name == 'HQ': a.name = 'HZ1'
 
             # parallel call
-            out = Parallel(n_jobs=n_threads, prefer='threads')(delayed(get_series_from_mdtraj)(frame,
-                                                                                               traj_file,
-                                                                                               top_file,
-                                                                                               frame_no,
-                                                                                               testing=testing,
-                                                                                               from_tmp=from_tmp,
-                                                                                               yaml_file=yaml_file,
-                                                                                               fix_isopeptides=fix_isopeptides,
-                                                                                               isopeptide_bonds=isopeptide_bonds,
-                                                                                               **kwargs) for
-                                                               frame, frame_no in zip(traj[:max_len:subsample],
-                                                                                      np.arange(traj.n_frames)[
-                                                                                      :max_len:subsample]))
+            if specific_index is None:
+                out = Parallel(n_jobs=n_threads, prefer='threads')(delayed(get_series_from_mdtraj)(frame,
+                                                                                                   traj_file,
+                                                                                                   top_file,
+                                                                                                   frame_no,
+                                                                                                   testing=testing,
+                                                                                                   from_tmp=from_tmp,
+                                                                                                   yaml_file=yaml_file,
+                                                                                                   fix_isopeptides=fix_isopeptides,
+                                                                                                   isopeptide_bonds=isopeptide_bonds,
+                                                                                                   **kwargs) for
+                                                                   frame, frame_no in zip(traj[:max_len:subsample],
+                                                                                          np.arange(traj.n_frames)[
+                                                                                          :max_len:subsample]))
+            else:
+                out = Parallel(n_jobs=n_threads, prefer='threads')(delayed(get_series_from_mdtraj)(frame,
+                                                                                                   traj_file,
+                                                                                                   top_file,
+                                                                                                   frame_no,
+                                                                                                   testing=testing,
+                                                                                                   from_tmp=from_tmp,
+                                                                                                   yaml_file=yaml_file,
+                                                                                                   fix_isopeptides=fix_isopeptides,
+                                                                                                   isopeptide_bonds=isopeptide_bonds,
+                                                                                                   **kwargs) for
+                                                                   frame, frame_no in zip(traj[specific_index], [specific_index]))
 
             # continue working with output
             now = datetime_windows_and_linux_compatible()
@@ -409,8 +436,10 @@ def parallel_xplor(ubq_sites, simdir='/home/andrejb/Research/SIMS/2017_*', n_thr
             df = df.append(out, ignore_index=True)
             if write_csv:
                 df.to_csv(df_name)
-            if testing:
+            if testing or break_early:
                 break
+        if break_early:
+            break
     return df
 
 
@@ -513,6 +542,7 @@ def call_pdb2psf(file, dir_, cwd):
         err = err.decode(sys.stdin.encoding)
     finally:
         os.chdir(cwd)
+    return out, err, return_code
 
 
 def test_conect(traj_file, pdb_file, remove_after=True, frame_no=0, ast_print=0,
@@ -995,7 +1025,10 @@ def get_series_from_mdtraj(frame, traj_file, top_file, frame_no, testing=False,
         psf_file = pdb_file.replace('.pdb', '.psf')
         try:
             frame.save_pdb(pdb_file)
-            call_pdb2psf(os.path.split(pdb_file)[1], os.getcwd(), os.getcwd())
+            out, err, return_code = call_pdb2psf(os.path.split(pdb_file)[1], os.getcwd(), os.getcwd())
+            if not os.path.isfile(psf_file):
+                print(out)
+                print(err)
             _add_bond_to_psf(psf_file, isopeptide_bonds)
             _rename_atoms_according_to_charmm(psf_file, pdb_file)
             out = call_xplor_with_yaml(pdb_file, psf_file=psf_file, from_tmp=from_tmp, testing=testing,
