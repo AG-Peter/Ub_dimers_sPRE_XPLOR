@@ -4,52 +4,35 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import MDAnalysis as mda
 import mdtraj as md
-import glob
+import glob, os
 import parmed as pmd
 
 # %% List dirs
-# glob.glob('/home/andrejb/Research/SIMS/2017_04_27_G_2ub_k6_01_01/*')
+# glob.glob('/home/andrejb/Research/SIMS/2017_04_27_G_2ub_*/')
+os.listdir('/home/andrejb/Research/SIMS/2017_04_27_G_2ub_m1_01_01/')
 
-# %% Try ParmEd
-from xplor.functions.custom_gromacstopfile import CustomGromacsTopFile
-from MDAnalysis.converters.OpenMMParser import OpenMMTopologyParser
+# %% Test psf with tetrapeptides
+pdb = '/home/kevin/projects/tetrapeptides_in_meoh_h2o/tetrapeptides_single/PFFP/PFFP_new.pdb'
+top = '/home/kevin/projects/tetrapeptides_in_meoh_h2o/tetrapeptides_single/PFFP/PFFP_vac.top'
+xtc = '/home/kevin/projects/tetrapeptides_in_meoh_h2o/tetrapeptides_single/PFFP/PFFP_MD_20ns_center_protonly.xtc'
+
+xplor.functions.test_conect(xtc, pdb, remove_after=False, top=top)
+
+# %% Test psf with M1 linked diUBQ
+pdb = '/home/andrejb/Research/SIMS/2017_04_27_G_2ub_m1_01_01/start.pdb'
+top = '/home/andrejb/Research/SIMS/2017_04_27_G_2ub_m1_01_01/traj.top'
+xtc = '/home/andrejb/Research/SIMS/2017_04_27_G_2ub_m1_01_01/traj_nojump.xtc'
+
+xplor.functions.test_conect(xtc, pdb, remove_after=False)
+
+# %% try some more stuff anew
+from xplor.functions.functions import _get_psf_atom_line
 pdb = '/home/andrejb/Research/SIMS/2017_04_27_G_2ub_k6_01_01/start.pdb'
 top = '/home/andrejb/Research/SIMS/2017_04_27_G_2ub_k6_01_01/traj.top'
-xtc = '/home/andrejb/Research/SIMS/2017_04_27_G_2ub_k6_01_01/traj.xtc'
+xtc = '/home/andrejb/Research/SIMS/2017_04_27_G_2ub_k6_01_01/traj_nojump.xtc'
 
-omm_top = CustomGromacsTopFile('/home/andrejb/Software/custom_tools/topology_builder/topologies/gromos54a7-isop/diUBQ_K6/system.top',
-                              includeDir='/home/andrejb/Software/gmx_forcefields')
+xplor.functions.test_conect(xtc, pdb, remove_after=True, ast_print=0)
 
-struct = pmd.openmm.load_topology(omm_top.topology)
-traj = md.load(pdb)
-traj.top = md.Topology.from_openmm(omm_top.topology)
-
-struct.save('/home/kevin/projects/tobias_schneider/test_CONECT/2017_04_27_G_2ub_k6_01_01_start_w_parmed.psf',
-            format='psf', overwrite=True)
-
-struct.coordinates = traj.xyz * 10
-
-struct.save('/home/kevin/projects/tobias_schneider/test_CONECT/2017_04_27_G_2ub_k6_01_01_start_w_parmed.pdb',
-            format='pdb', overwrite=True)
-
-
-# %% Try MDAnalysis save psf and check
-from xplor.functions.custom_gromacstopfile import CustomGromacsTopFile
-from MDAnalysis.converters.OpenMMParser import OpenMMTopologyParser
-pdb = '/home/andrejb/Research/SIMS/2017_04_27_G_2ub_k6_01_01/start.pdb'
-top = '/home/andrejb/Research/SIMS/2017_04_27_G_2ub_k6_01_01/traj.top'
-xtc = '/home/andrejb/Research/SIMS/2017_04_27_G_2ub_k6_01_01/traj.xtc'
-
-traj = md.load(pdb)
-for i in dir(traj):
-    if i.startswith('save'):
-        print(i)
-
-omm_top = CustomGromacsTopFile('/home/andrejb/Software/custom_tools/topology_builder/topologies/gromos54a7-isop/diUBQ_K6/system.top',
-                              includeDir='/home/andrejb/Software/gmx_forcefields')
-top = OpenMMTopologyParser(omm_top.topology)
-u = mda.Universe(pdb, xtc)
-u._topology = top._mda_topology_from_omm_topology(omm_top.topology)
 
 # %% make the tbl files
 # xplor.functions.parse_input_files.make_15_N_table('data/spre_and_relaxation_data_k6_k29/relaxation_file_ub2_k6.txt',

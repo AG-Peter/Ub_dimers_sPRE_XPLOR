@@ -5,20 +5,44 @@
 
 import mdtraj as md
 import numpy as np
+import parmed as pmd
+from parmed.charmm import CharmmPsfFile
 import pandas as pd
-import os, sys, glob, multiprocessing, copy
+import os, sys, glob, multiprocessing, copy, ast, subprocess, yaml, shutil
 from ..proteins.proteins import get_column_names_from_pdb
+from io import StringIO
 from joblib import Parallel, delayed
 from .custom_gromacstopfile import CustomGromacsTopFile
 from xplor.argparse.argparse import YAML_FILE, write_argparse_lines_from_yaml_or_dict
 from ..misc import get_local_or_proj_file, get_iso_time
+from .psf_parser import PSFParser
+from pdbfixer import PDBFixer
+from simtk.openmm.app import PDBFile
+
 
 ################################################################################
 # Globals
 ################################################################################
 
 __all__ = ['parallel_xplor', 'get_series_from_mdtraj', 'call_xplor_with_yaml',
-           'normalize_sPRE']
+           'normalize_sPRE', 'get_series_with_conect', 'test_conect']
+
+
+################################################################################
+# Utils
+################################################################################
+
+
+class Capturing(list):
+    def __enter__(self):
+        self._stdout = sys.stdout
+        sys.stdout = self._stringio = StringIO()
+        return self
+    def __exit__(self, *args):
+        self.extend(self._stringio.getvalue().splitlines())
+        del self._stringio    # free up some memory
+        sys.stdout = self._stdout
+
 
 ################################################################################
 # Functions
@@ -57,8 +81,11 @@ def get_ubq_site_and_basename(traj_file):
     try:
         ubq_site = substrings[[substr.startswith('k') for substr in substrings].index(True)]
     except ValueError:
-        print(basename)
-        raise
+        if 'm1' in traj_file:
+            return basename, 'm1'
+        else:
+            print(basename)
+            raise
     return basename, ubq_site
 
 
@@ -193,7 +220,6 @@ def call_xplor_with_yaml(pdb_file, yaml_file='', from_tmp=False, testing=False, 
 
     """
     # load defaults
-    import yaml, subprocess
     if not yaml_file:
         yaml_file = YAML_FILE
     with open(yaml_file, 'r') as stream:
@@ -305,8 +331,9 @@ def parallel_xplor(ubq_sites, simdir='/home/andrejb/Research/SIMS/2017_*', n_thr
                 continue
             basename = traj_file.split('/')[-2]
             top_file = dir_ + '/start.pdb'
-            top_aa = CustomGromacsTopFile(f'/home/andrejb/Software/custom_tools/topology_builder/topologies/gromos54a7-isop/diUBQ_{ubq_site.upper()}/system.top',
-                                          includeDir='/home/andrejb/Software/gmx_forcefields')
+            with Capturing() as output:
+                top_aa = CustomGromacsTopFile(f'/home/andrejb/Software/custom_tools/topology_builder/topologies/gromos54a7-isop/diUBQ_{ubq_site.upper()}/system.top',
+                                              includeDir='/home/andrejb/Software/gmx_forcefields')
             traj = md.load(traj_file, top=top_file)
             traj.top = md.Topology.from_openmm(top_aa.topology)
 
@@ -362,8 +389,39 @@ def parallel_xplor(ubq_sites, simdir='/home/andrejb/Research/SIMS/2017_*', n_thr
     return df
 
 
-def get_series_mdanalysis(frame, traj_file, top_file, frame_no, testing=False, from_tmp=False, yaml_file='', **kwargs):
-    """Similar to `get_series_from_mdtraj`, but using MDAnalysis and saving a psf file.
+def _start_series_with_info(frame, traj_file, top_file, frame_no):
+    """Pre-formats a pandas series to which the XPLOR output can be appended.
+
+    Args:
+        frame (mdtraj.Trajectory): The traj which will be saved,
+        traj_file (str): The name of the parent traj (this will be an .xtc file).
+        top_file (str): The topology used for this traj file.
+        frame_no (int): The number of the frame.
+
+    Returns:
+        tuple: A tuple containing the following:
+            pd.Series: A pre-formatted pandas series.
+            str: The basename of the `traj_file`.
+            str: The name of the temporary pdb file including a hash.
+
+    """
+    # define a pre-formatted pandas series
+    data = {'traj_file': traj_file, 'top_file': top_file, 'frame': frame_no, 'time': frame.time[0]}
+    column_names = get_column_names_from_pdb()
+    columns = {column_name: np.nan for column_name in column_names}
+    data.update(columns)
+    series = pd.Series(data=data)
+
+    # get data
+    basename = os.path.basename(traj_file).split('.')[0]
+    pdb_file = os.path.join(os.getcwd(), f'tmp_{basename}_frame_{frame_no}_hash_{abs(hash(frame))}.pdb')
+
+    return series, basename, pdb_file
+
+
+def get_series_with_conect(frame, traj_file, top_file, frame_no, testing=False, from_tmp=False, yaml_file='', **kwargs):
+    """Similar to `get_series_from_mdtraj`, but using parmed and tuning the psf-
+    file, so XPLOR can read it.
     
     Arguments for XPLOR can be provided by either specifying a yaml file, or
     providing them as keyword_args to this function. For example you can use
@@ -425,8 +483,464 @@ def get_series_mdanalysis(frame, traj_file, top_file, frame_no, testing=False, f
         pd.Series: A pandas series instance
     
     """
-    pass
+    series, basename, pdb_file = _start_series_with_info(frame, traj_file, top_file, frame_no)
+    should_be_residue_number = frame.n_residues
 
+
+
+    # frame.save_pdb(pdb_file)
+
+
+def _test_xplor_with_pdb(pdb_file):
+    tbl_file = get_local_or_proj_file('data/diUbi_k6_800_mhz_relaxratiopot_in.tbl')
+    executable = '/home/kevin/software/xplor-nih/executables/pyXplor -c '
+    cmd = f""""import protocol
+    from diffPotTools import readInRelaxData
+    from relaxRatioPotTools import create_RelaxRatioPot
+    protocol.loadPDB('{pdb_file}', deleteUnknownAtoms=True)
+    protocol.initParams('protein')
+    relax_data_in = readInRelaxData('{tbl_file}', pattern=['resid', 'R1', 'R1_err', 'R2', 'R2_err', 'NOE', 'NOE_err'])
+    rrp = create_RelaxRatioPot(name='rrp600', data_in=relax_data_in, freq=600.0)
+    print([[600, r.name().split()[1], r.calcd()] for r in rrp.restraints()])"
+    """
+    cmd = '; '.join([i.lstrip() for i in cmd.splitlines()])
+    cmd = executable + cmd.rstrip('; ')
+    process = subprocess.Popen(cmd, stderr=subprocess.PIPE, stdout=subprocess.PIPE, shell=True)
+    out, err = process.communicate()
+    return_code = process.poll()
+    out = out.decode(sys.stdin.encoding)
+    err = err.decode(sys.stdin.encoding)
+    if return_code != 0:
+        print(err)
+        raise Exception(f"xplor with pdb and rrp failed with exit code {return_code}")
+    else:
+        return out, True
+
+
+def _test_xplor_with_psf(psf_file, pdb_file):
+    tbl_file = get_local_or_proj_file('data/diUbi_k6_800_mhz_relaxratiopot_in.tbl')
+    executable = '/home/kevin/software/xplor-nih/executables/pyXplor -c '
+    cmd = f""""import protocol
+        from diffPotTools import readInRelaxData
+        from relaxRatioPotTools import create_RelaxRatioPot
+        protocol.initStruct('{psf_file}')
+        print('struct loaded')
+        protocol.initCoords('{pdb_file}')
+        print('pdb loaded')
+        protocol.initParams('protein')
+        relax_data_in = readInRelaxData('{tbl_file}', pattern=['resid', 'R1', 'R1_err', 'R2', 'R2_err', 'NOE', 'NOE_err'])
+        rrp = create_RelaxRatioPot(name='rrp600', data_in=relax_data_in, freq=600.0)
+        print([[600, r.name().split()[1], r.calcd()] for r in rrp.restraints()])"
+        """
+    cmd = '; '.join([i.lstrip() for i in cmd.splitlines()])
+    cmd = executable + cmd.rstrip('; ')
+    process = subprocess.Popen(cmd, stderr=subprocess.PIPE, stdout=subprocess.PIPE, shell=True)
+    out, err = process.communicate()
+    return_code = process.poll()
+    out = out.decode(sys.stdin.encoding)
+    err = err.decode(sys.stdin.encoding)
+    if return_code != 0:
+        print(err)
+        raise Exception(f"xplor with psf, pdb and rrp failed with exit code {return_code}")
+    elif '%PARSER-ERR: Too many parsing errors --> termination' in out:
+        print(f"xplor died with parser error.")
+        return out, False
+    else:
+        return out, True
+
+
+def call_pdb2psf(file, dir_, cwd):
+    try:
+        os.chdir(dir_)
+        cmd = f'/home/kevin/software/xplor-nih/executables/pdb2psf {file}'
+        process = subprocess.Popen(cmd, stderr=subprocess.PIPE, stdout=subprocess.PIPE, shell=True)
+        out, err = process.communicate()
+        return_code = process.poll()
+        out = out.decode(sys.stdin.encoding)
+        err = err.decode(sys.stdin.encoding)
+    finally:
+        os.chdir(cwd)
+
+
+def test_conect(traj_file, pdb_file, remove_after=True, frame_no=0, ast_print=0,
+                top='', dir_='/home/kevin/projects/tobias_schneider/test_parmed/'):
+    cwd = os.getcwd()
+
+    # create OpenMM topology
+    if not top:
+        basename, ubq_site = get_ubq_site_and_basename(traj_file)
+        # gromos_top_file = f'/home/andrejb/Software/custom_tools/topology_builder/topologies/gromos54a7-isop/diUBQ_{ubq_site.upper()}/system.top'
+        gromos_top_file = f'/home/andrejb/Research/DEVA/2017_04_27_UBQ_TOPOLOGIES/top_G54A7/diUBQ/{ubq_site}_01/system.top'
+        with Capturing() as output:
+            omm_top = CustomGromacsTopFile(gromos_top_file, includeDir='/home/andrejb/Software/gmx_forcefields')
+    else:
+        with Capturing() as output:
+            omm_top = CustomGromacsTopFile(top, includeDir='/home/soft/gromacs/gromacs-2021.1/src/share/top/')
+
+    # mdtraj part
+    traj = md.load_frame(traj_file, index=frame_no, top=pdb_file)
+    print('[DEBUG]: traj.n_atoms:', traj.n_atoms, 'omm_top.n_atoms:', md.Topology.from_openmm(omm_top.topology).n_atoms)
+    traj.top = md.Topology.from_openmm(omm_top.topology)
+
+    isopeptide_bonds = []
+    for r in traj.top.residues:
+        if r.name == 'GLQ':
+            r.name = 'GLY'
+            for a in r.atoms:
+                if a.name == 'C':
+                    isopeptide_bonds.append(f"{a.residue.name} {a.residue.resSeq} {a.name}")
+        if r.name == 'LYQ':
+            r.name = 'LYS'
+            for a in r.atoms:
+                if a.name == 'CQ': a.name = 'CE'
+                if a.name == 'NQ':
+                    a.name = 'NZ'
+                    isopeptide_bonds.append(f"{a.residue.name} {a.residue.resSeq} {a.name}")
+                if a.name == 'HQ': a.name = 'HZ1'
+
+    # save and call xplor
+    mdtraj_pdb = os.path.join(dir_, 'test_mdtraj.pdb')
+    mdtraj_psf = os.path.join(dir_, 'test_mdtraj.psf')
+    traj.save_pdb(mdtraj_pdb)
+    out_straight_pdb, _ = _test_xplor_with_pdb(mdtraj_pdb)
+    if _:
+        print('[DEBUG]: straight XPLOR from pdb succeeded.')
+        print('[VALUES]: ', ast.literal_eval(out_straight_pdb.splitlines()[-1])[ast_print])
+    else:
+        print('[ERROR]: straight XPLOR from pdb DID NOT SUCCEED.')
+        print('[ERROR]: ', out_straight_pdb)
+
+    # call pdb2psf and try again
+    call_pdb2psf('test_mdtraj.pdb', dir_, cwd)
+
+    # call xplor with this file
+    out_psf_from_psd2psf, _ = _test_xplor_with_psf(mdtraj_psf, mdtraj_pdb)
+
+    # check the output
+    if _:
+        print('[DEBUG]: XPLOR with psf (from pdb2psf) and pdb (from MDTraj) succeeded.')
+        print('[VALUES]: ', ast.literal_eval(out_psf_from_psd2psf.splitlines()[-1])[ast_print])
+    else:
+        print('[ERROR]: XPLOR with psf (from pdb2psf) and pdb (from MDTraj) DID NOT SUCCEED.')
+        print('[ERROR]: ', out_psf_from_psd2psf)
+
+    if 'm1' in traj_file:
+        traj_atom_slice = traj.atom_slice(traj.top.select('not residue 76 and not residue 77'))
+        mdtraj_atom_slice_pdb = os.path.join(dir_, 'test_mdtraj_atom_slice.pdb')
+        mdtraj_atom_slice_psf = os.path.join(dir_, 'test_mdtraj_atom_slice.psf')
+        traj_atom_slice.save_pdb(mdtraj_atom_slice_pdb)
+        call_pdb2psf('test_mdtraj_atom_slice.pdb', dir_, cwd)
+        out_removed_linkage_from_m1, _ = _test_xplor_with_psf(mdtraj_atom_slice_psf, mdtraj_atom_slice_pdb)
+
+        if _:
+            print('[DEBUG]: XPLOR from M1-linked diUBQ (without GLY76 and MET77) with psf (from pdb2psf) and pdb (from MDTraj) succeeded.')
+            print('[VALUES]: ', ast.literal_eval(out_removed_linkage_from_m1.splitlines()[-1])[ast_print])
+        else:
+            print('[ERROR]: XPLOR from M1-linked diUBQ (without GLY76 and MET77) with psf (from pdb2psf) and pdb (from MDTraj) DID NOT SUCCEED.')
+            print('[ERROR]: ', out_removed_linkage_from_m1)
+
+        test1 = ast.literal_eval(out_psf_from_psd2psf.splitlines()[-1])[ast_print][-1]
+        test2 = ast.literal_eval(out_removed_linkage_from_m1.splitlines()[-1])[ast_print][-1]
+
+        if test1 != test2:
+            print("[SUCCESS]: After removing GLY76 and MET77 from M1-linked diUBQ, the "
+                  "Tensor of inertia changed and thus the R2/R2 relax ratios changed. "
+                  f"From {test1} (normal M1-diUBQ) to {test2} (M1-diUBQ w/o GLY76 and MET77. "
+                  "How can this effect be brought to K6-diUBQ?")
+            return
+
+    # add the bond to the psf from xplor
+    mdtraj_copy_psf = os.path.join(dir_, 'test_mdtraj_copy.psf')
+    shutil.copyfile(mdtraj_psf, mdtraj_copy_psf)
+
+    before_atoms = _count_atoms(mdtraj_psf)
+    before_bonds, before_should_be_bonds = _count_bonds(mdtraj_psf)
+
+    _add_bond_to_psf(mdtraj_copy_psf, isopeptide_bonds)
+
+    after_atoms = _count_atoms(mdtraj_copy_psf)
+    after_bonds, after_should_be_bonds = _count_bonds(mdtraj_copy_psf)
+
+    print(f'[DEBUG]: The number of atom-lines went from {before_atoms} to {after_atoms}')
+    print(f'[DEBUG]: The number of bonds went from {before_bonds} to {after_bonds}')
+    print(f'[DEBUG]: The number before the !NBOND directive went from {before_should_be_bonds} to {after_should_be_bonds}')
+
+    # try pdbfixer and check the number of atoms
+    mdtraj_copy_pdb = os.path.join(dir_, 'test_mdtraj_copy.pdb')
+    shutil.copyfile(mdtraj_pdb, mdtraj_copy_pdb)
+    _rename_atoms_according_to_charmm(mdtraj_copy_psf, mdtraj_copy_pdb)
+
+    print(f"[DEBUG]: After also fixing and aligning the pdb, it now contains {md.load_pdb(mdtraj_copy_pdb).n_atoms} atoms.")
+
+    out_manually_added_bonds, _ = _test_xplor_with_psf(mdtraj_copy_psf, mdtraj_copy_pdb)
+    if _:
+        if any([i[-1] != j[-1] for i, j in zip(out_psf_from_psd2psf, out_manually_added_bonds)]):
+            print("[SUCCESS]: The command succeeded and the values differ at some positions")
+            return
+        else:
+            print('[DEBUG]: XPLOR with manually added bond to psf file succeeded, but the values are identical.')
+            print('[VALUES]: ', ast.literal_eval(out_manually_added_bonds.splitlines()[-1])[ast_print])
+    else:
+        print('[ERROR]: XPLOR with  manually added bond to psf file DID NOT SUCCEED.')
+        print('[ERROR]: ', out_manually_added_bonds)
+
+    raise Exception("STOP")
+
+    # parmed part
+    struct = pmd.openmm.load_topology(omm_top.topology)
+    struct.coordinates = traj.xyz[0] * 10  # needed for nm to angstrom
+
+    for r in struct.residues:
+        if r.name == 'GLQ':
+            r.name = 'GLY'
+        if r.name == 'LYQ':
+            r.name = 'LYS'
+            for a in r.atoms:
+                if a.name == 'CQ': a.name = 'CE'
+                if a.name == 'NQ': a.name = 'NZ'
+                if a.name == 'HQ': a.name = 'HZ1'
+
+    # save
+    pdb_file = 'test.pdb'
+    psf_file = 'test.psf'
+    struct.save(os.path.join(dir_, pdb_file), format='pdb', overwrite=True)
+    struct.save(os.path.join(dir_, psf_file), format='psf', vmd=True, overwrite=True)
+
+    # try this psf
+    out3, _ = _test_xplor_with_psf(os.path.join(dir_, psf_file), os.path.join(dir_, pdb_file))
+    if _:
+        print('XPLOR with psf succeeded.')
+        print(ast.literal_eval(out3.splitlines()[-1])[ast_print])
+    else:
+        print('XPLOR with psf did not succeed. As expected.')
+
+    print('before')
+    with open(os.path.join(dir_, psf_file), 'r') as f:
+        print('\n'.join(f.read().splitlines()[:5]))
+
+    _fix_parmed_psf(os.path.join(dir_, psf_file))
+
+    print('after')
+    with open(os.path.join(dir_, psf_file), 'r') as f:
+        print('\n'.join(f.read().splitlines()[:5]))
+
+    try:
+        out5, _ = _test_xplor_with_psf(os.path.join(dir_, psf_file), os.path.join(dir_, pdb_file))
+    except Exception as e:
+        print("XPLOR with manually parsed psf file still fails. No idea, why... Here's the original Error:")
+        print(e)
+        _ = False
+    if _:
+        print('XPLOR with fixed psf succeeded.')
+        print(ast.literal_eval(out5.splitlines()[-1])[ast_print])
+    else:
+        print('XPLOR with manually parsed psf did not succeed. Still don\'t know why')
+
+    # clean up
+    if remove_after:
+        for file in ['test.pdb', 'test.psf', 'test_mdtraj.pdb', 'test_mdtraj.psf', 'test_mdtraj_copy.psf']:
+            file = os.path.join(dir_, file)
+            if not os.path.isfile(file):
+                print(f"The file {file} was not present.")
+            else:
+                os.remove(file)
+
+
+def _rename_atoms_according_to_charmm(psf_file, pdb_file):
+    """Takes a psf file and a pdb file. Adds Hydrogens to the pdb file with
+    pdbfixer, overwrites the pdb file and renames atoms, like they are named in
+    the psf file.
+
+    Args:
+        psf_file (str): The path to the psf file.
+        pdb_file (str): The path to the pdb file.
+
+    Returns:
+        parmed.Structure: The ouptut structure.
+
+    """
+    fixer = PDBFixer(pdb_file)
+    fixer.addMissingHydrogens()
+
+    os.remove(pdb_file)
+    buffer = StringIO()
+    PDBFile.writeFile(fixer.topology, fixer.positions, buffer)
+    buffer.seek(0)
+    lines = buffer.read().splitlines()
+    atom_lines = [line.startswith('ATOM') for line in lines].count(True)
+
+    with open(psf_file, 'r') as f:
+        full_file = f.read()
+    hunks = full_file.split('\n\n')
+    atom_hunk = hunks[['!NATOM' in hunk for hunk in hunks].index(True)].splitlines()[1:]
+
+    new_pdb = []
+    i = 0
+    for line in lines:
+        if line.startswith('ATOM'):
+            psf_atom = atom_hunk[i].split()[4]
+            if len(psf_atom) > 4:
+                raise Exception(f"This atom is too long: {psf_atom}")
+            if len(psf_atom) == 4:
+                line = line[:12] + f"{psf_atom:<3}" + line[16:]
+            else:
+                line = line[:13] + f"{psf_atom:<3}" + line[16:]
+            i += 1
+        new_pdb.append(line)
+
+    with open(pdb_file, 'w') as f:
+        for line in new_pdb:
+            f.write(line + '\n')
+
+
+def _count_atoms(psf_file):
+    """Counts the number of atoms in a psf file."""
+    with open(psf_file, 'r') as f:
+        full_file = f.read()
+    hunks = full_file.split('\n\n')
+    atom_hunk = hunks[['!NATOM' in hunk for hunk in hunks].index(True)].splitlines()
+    return len(atom_hunk) - 1 # subtract one for the line with !NATOM in it
+
+
+def _count_bonds(psf_file):
+    """Counts the number of bonds and atoms in bonds in a psf file.
+
+    Args:
+        psf_file (str): The path to the psf file.
+
+    Returns:
+        tuple: A tuple containing the following:
+            int: Number of bonds.
+            int: Number that occurs in XXXX !NBOND line in psf file.
+
+    """
+    with open(psf_file, 'r') as f:
+        full_file = f.read()
+    n_bonds = 0
+    hunks = full_file.split('\n\n')
+    bond_hunk = hunks[['!NBOND' in hunk for hunk in hunks].index(True)].splitlines()
+    bond_lines = bond_hunk[1:]
+    should_be = int(bond_hunk[0].split()[0])
+    for bond_line in bond_lines:
+        entries = len(bond_line.split())
+        n_bonds += int(entries / 2)
+    return n_bonds, should_be
+
+
+def _add_bond_to_psf(psf_file, bond_atoms):
+    """Adds a bond to a XPLOR (pdb2psf) psf file.
+
+    Args:
+        psf_file (str): The path to the psf file (will be overwritten).
+        bond_atoms (list[str]): The atoms between which a bond will be added.
+
+    """
+    with open(psf_file, 'r') as f:
+        full_file = f.read()
+    hunks = full_file.split('\n\n')
+    atom_hunk = hunks[['!NATOM' in hunk for hunk in hunks].index(True)].splitlines()
+    lines = full_file.splitlines()
+    bond_integers = _find_atoms(atom_hunk, bond_atoms)
+
+    os.remove(psf_file)
+
+    with open(psf_file, 'w') as f:
+        for i, line in enumerate(lines):
+            if i < len(lines) - 2:
+                if '!NTHETA' in lines[i + 2]:
+                    if len(line.split()) == 8:
+                        line += '\n'
+                    line += f'    {bond_integers[0]:>4}    {bond_integers[1]:>4}'
+            if '!NBOND' in line:
+                current_bond_count = line.split()[0]
+                new_bond_count = str(int(current_bond_count) + 1)
+                line = line.replace(current_bond_count, new_bond_count)
+            f.write(line + '\n')
+
+
+def _find_atoms(lines, bond_atoms):
+    """Tries to find the atoms from bond_atoms in lines."""
+    atom_integers = []
+    for atom in bond_atoms:
+        resname, resseq, atom_name = atom.split()
+        for line in lines:
+            if resname in line and resseq in line:
+                if any([i == atom_name for i in line.split()]):
+                    atom_integers.append(int(line.split()[0]))
+    if not len(atom_integers) == 2:
+        raise Exception("Could not unambigously determine CAs")
+    return atom_integers
+
+
+def isfloat(value):
+    """Returns true if value is float"""
+    try:
+        float(value)
+        return True
+    except ValueError:
+        return False
+
+
+def _get_psf_atom_line(line):
+    """Uses a line from a ParmEd psf file and formats it to an XPLOR psf file.
+
+    (Can also use an XPLOR psf file line, to check whether the formatting works.)
+
+    Args:
+        line (str): The ParmEd psf file line.
+
+    Returns:
+        str: The new line.
+
+    """
+    data = {}
+    datafields = ['no', 'chain', 'resseq', 'resname', 'name', 'type_', 'charge', 'mass', 'extra']
+    for key, value in zip(datafields, line.split()):
+        if value.isdigit():
+            data[key] = int(value)
+        elif isfloat(value):
+            data[key] = float(value)
+        else:
+            data[key] = value
+    new_line = f"    {data['no']:>4} {data['chain']}    {data['resseq']:<4} "
+    new_line += f"{data['resname']}  {data['name']:<3}  {data['type_']:<3}   {data['charge']: .6f}"
+    new_line += "       {:.7s}".format('{:0.5f}'.format(data['mass']))
+    if len(data) == 9:
+        new_line += f"           {data['extra']}"
+    elif len(data) == 8:
+        new_line += f"           0"
+    else:
+        raise Exception(f"Could not convert dict with {len(data)} keys to line. Here's the dict: {data}")
+    return new_line
+
+
+def _fix_parmed_psf(psf_file):
+    """Fixes a ParmEd psf file.
+
+    Args:
+        psf_file (str): Path to the file. Will be repalced.
+
+    """
+    with open(psf_file, 'r') as f:
+        lines = f.read().splitlines()
+
+    os.remove(psf_file)
+
+    with open(psf_file, 'w') as f:
+        for line in lines:
+            if 'PSF CHEQ EXT XPLOR' in line:
+                line = 'PSF'
+            if 'SYS' in line:
+                line = line.replace('SYS', 'A')
+                line = _get_psf_atom_line(line)
+            if '!N' in line:
+                line = line[2:]
+            if '!NTITLE' in line:
+                line += '\n REMARKS Created by ParmEd and manually fixed by Kevin Sawade (kevin.sawade at uni-konstanz.de)'
+            if '!NTITLE' in line:
+                f.write(line)
+            else:
+                f.write(line + '\n')
 
 def get_series_from_mdtraj(frame, traj_file, top_file, frame_no, testing=False, from_tmp=False, yaml_file='', **kwargs):
     """Saves a temporary pdb file which will then be passed to call_xplor_with_yaml
@@ -490,22 +1004,13 @@ def get_series_from_mdtraj(frame, traj_file, top_file, frame_no, testing=False, 
     Returns:
         pd.Series: A pandas Series instance.
 
-        """
-    # function specific imports
-    import ast
+    """
+    # pre-formatted series
+    series, basename, pdb_file = _start_series_with_info(traj, traj_file, top_file, frame_no)
 
-    # define a pre-formatted pandas series
-    data = {'traj_file': traj_file, 'top_file': top_file, 'frame': frame_no, 'time': frame.time[0]}
-    column_names = get_column_names_from_pdb()
-    columns = {column_name: np.nan for column_name in column_names}
-    data.update(columns)
-    series = pd.Series(data=data)
-
+    # how many residues.
     should_be_residue_number = frame.n_residues
-    
-    # get data
-    basename = os.path.basename(traj_file).split('.')[0]
-    pdb_file = os.path.join(os.getcwd(), f'tmp_{basename}_frame_{frame_no}_hash_{abs(hash(frame))}.pdb')
+
     frame.save_pdb(pdb_file)
 
     try:
