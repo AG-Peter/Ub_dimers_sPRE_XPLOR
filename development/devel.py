@@ -11,12 +11,6 @@ import parmed as pmd
 # glob.glob('/home/andrejb/Research/SIMS/2017_04_27_G_2ub_*/')
 os.listdir('/home/andrejb/Research/SIMS/2017_04_27_G_2ub_m1_01_01/')
 
-# %% Test psf with tetrapeptides
-pdb = '/home/kevin/projects/tetrapeptides_in_meoh_h2o/tetrapeptides_single/PFFP/PFFP_new.pdb'
-top = '/home/kevin/projects/tetrapeptides_in_meoh_h2o/tetrapeptides_single/PFFP/PFFP_vac.top'
-xtc = '/home/kevin/projects/tetrapeptides_in_meoh_h2o/tetrapeptides_single/PFFP/PFFP_MD_20ns_center_protonly.xtc'
-
-xplor.functions.test_conect(xtc, pdb, remove_after=False, top=top)
 
 # %% Test psf with M1 linked diUBQ
 pdb = '/home/andrejb/Research/SIMS/2017_04_27_G_2ub_m1_01_01/start.pdb'
@@ -26,7 +20,6 @@ xtc = '/home/andrejb/Research/SIMS/2017_04_27_G_2ub_m1_01_01/traj_nojump.xtc'
 xplor.functions.test_conect(xtc, pdb, remove_after=False)
 
 # %% try some more stuff anew
-from xplor.functions.functions import _get_psf_atom_line
 pdb = '/home/andrejb/Research/SIMS/2017_04_27_G_2ub_k6_01_01/start.pdb'
 top = '/home/andrejb/Research/SIMS/2017_04_27_G_2ub_k6_01_01/traj.top'
 xtc = '/home/andrejb/Research/SIMS/2017_04_27_G_2ub_k6_01_01/traj_nojump.xtc'
@@ -45,10 +38,18 @@ xplor.functions.test_conect(xtc, pdb, remove_after=True, ast_print=0)
 
 # %% run on all files
 # xplor.functions.call_xplor_with_yaml('data/2017_06_28_GfM_SMmin_rnd_k6_0_start.pdb', from_tmp=True)
-# traj_file = xplor.functions.get_local_or_proj_file('data/2017_06_28_GfM_SMmin_rnd_k6_0_start.pdb')
-# traj = md.load(traj_file)
-# series = xplor.functions.get_series_from_mdtraj(traj, traj_file, traj_file, 0, from_tmp=True)
-out2 = xplor.functions.parallel_xplor(['k6'], from_tmp=True, max_len=20, write_csv=False, testing=True)
+traj_file = xplor.misc.get_local_or_proj_file('data/2017_06_28_GfM_SMmin_rnd_k6_0_start.pdb')
+traj = md.load(traj_file)
+isopeptide_bonds_for_k6 = ['GLY 76 C', 'LYS 82 NZ']
+# series = xplor.functions.get_series_from_mdtraj(traj, traj_file, traj_file, 0, from_tmp=True,
+#                                                 check_fix_isopeptides=True, isopeptide_bonds=isopeptide_bonds_for_k6)
+out2 = xplor.functions.parallel_xplor(['k6'], from_tmp=True, max_len=20, write_csv=False, testing=False)
+
+# %%
+print(os.listdir())
+
+# %%
+series.values
 
 # %% Test the series function
 series = xplor.functions.get_series_from_mdtraj(traj, traj_file, traj_file, 0, from_tmp=True)

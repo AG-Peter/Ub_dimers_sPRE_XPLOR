@@ -77,7 +77,9 @@ def is_aa_sim(file):
 def get_ubq_site_and_basename(traj_file):
     """Returns ubq_site and basename for a traj_file."""
     basename = traj_file.split('/')[-2]
-    substrings = basename.split('_')
+    if basename == 'data':
+        basename = traj_file.split('/')[-1].split('.')[0]
+    substrings = traj_file.split('_')
     try:
         ubq_site = substrings[[substr.startswith('k') for substr in substrings].index(True)]
     except ValueError:
@@ -192,7 +194,8 @@ def normalize_sPRE(df_comp, df_obs, kind='var', norm_res_count=10):
     return df_comp_w_norm, centers_prox, centers_dist
 
 
-def call_xplor_with_yaml(pdb_file, yaml_file='', from_tmp=False, testing=False, **kwargs):
+def call_xplor_with_yaml(pdb_file, psf_file=None, yaml_file='', from_tmp=False,
+                         testing=False, fix_isopeptides=True, **kwargs):
     """Calls the xplor script with values from a yaml file.
 
     Arguments for XPLOR can be provided by either specifying a yaml file, or
@@ -211,6 +214,11 @@ def call_xplor_with_yaml(pdb_file, yaml_file='', from_tmp=False, testing=False, 
             Defaults to False
         testing (bool, optional): Adds the '-testing' flag to the command.
             Defaults to False.
+        fix_isopeptides (bool, optional): Whether to fix isopeptide bonds using the
+            technique developed in `check_conect`. Defaults to True.
+        psf_file (Union[str, None], optional): Provide the path to a psf file
+            when setting `fix_isopeptides` True. Defaults to None and will
+            raise an Error, if `fix_isopeptides` is set to True and `psf_file` is None.
         **kwargs: Arbitrary keyword arguments. Keywords that are not flags
             of the xplor/scripts/xplor_single_struct_script.py will be discarded.
 
@@ -240,10 +248,17 @@ def call_xplor_with_yaml(pdb_file, yaml_file='', from_tmp=False, testing=False, 
     arguments = write_argparse_lines_from_yaml_or_dict(defaults)
 
     if from_tmp:
-        executable = '/home/kevin/software/xplor-nih/xplor-nih-3.2/bin/pyXplor /tmp/pycharm_project_13/xplor/scripts/xplor_single_struct.py'
+        executable = f'/home/kevin/software/xplor-nih/xplor-nih-3.2/bin/pyXplor {os.getcwd()}/xplor/scripts/xplor_single_struct.py'
     else:
         executable = '/home/kevin/software/xplor-nih/xplor-nih-3.2/bin/pyXplor ' + get_local_or_proj_file('scripts/xplor_single_struct.py')
-    cmd = f'{executable} -pdb {pdb_file} {arguments}'
+    if fix_isopeptides:
+        if psf_file is None:
+            raise Exception("Please provide the path to a psf file, when running in `fix_isopeptides`-mode.")
+        cmd = f'{executable} -pdb {pdb_file} -psf {psf_file} {arguments}'
+        cmd += ' -struct_loading_method initStruct'
+    else:
+        cmd = f'{executable} -pdb {pdb_file} {arguments}'
+        cmd += ' -struct_loading_method loadPDB'
     if testing:
         cmd += ' -testing'
     process = subprocess.Popen(cmd, stderr=subprocess.PIPE, stdout=subprocess.PIPE, shell=True)
@@ -260,7 +275,7 @@ def call_xplor_with_yaml(pdb_file, yaml_file='', from_tmp=False, testing=False, 
 
 def parallel_xplor(ubq_sites, simdir='/home/andrejb/Research/SIMS/2017_*', n_threads='max-2',
                    df_outdir='/home/kevin/projects/tobias_schneider/values_from_every_frame/from_package/',
-                   suffix = '_df_no_conect.csv', write_csv=True,
+                   suffix = '_df_no_conect.csv', write_csv=True, fix_isopeptides=True,
                    subsample=5, yaml_file='', testing=False, from_tmp=False, max_len=-1, **kwargs):
     """Runs xplor on many simulations in parallel.
 
@@ -302,6 +317,8 @@ def parallel_xplor(ubq_sites, simdir='/home/andrejb/Research/SIMS/2017_*', n_thr
             Defaults to False
         testing (bool, optional): Adds the '-testing' flag to the command.
             Defaults to False.
+        fix_isopeptides (bool, optional): Whether to fix isopeptide bonds using the
+            technique developed in `check_conect`. Defaults to True.
         **kwargs: Arbitrary keyword arguments. Keywords that are not flags
             of the xplor/scripts/xplor_single_struct_script.py will be discarded.
 
@@ -313,6 +330,9 @@ def parallel_xplor(ubq_sites, simdir='/home/andrejb/Research/SIMS/2017_*', n_thr
         n_threads = multiprocessing.cpu_count() - 2
     elif n_threads == 'max':
         n_threads = multiprocessing.cpu_count()
+
+    if fix_isopeptides:
+        print("Using procedure from `check_conect` to fix isopeptide bonds.")
 
     # get list of already existing dfs
     files = glob.glob(f'{df_outdir}*{suffix}')
@@ -349,6 +369,7 @@ def parallel_xplor(ubq_sites, simdir='/home/andrejb/Research/SIMS/2017_*', n_thr
             else:
                 print(f"traj {basename} NOT FINISHED")
 
+            isopeptide_bonds = []
             isopeptide_indices = []
             for r in traj.top.residues:
                 if r.name == 'GLQ':
@@ -356,6 +377,7 @@ def parallel_xplor(ubq_sites, simdir='/home/andrejb/Research/SIMS/2017_*', n_thr
                     for a in r.atoms:
                         if a.name == 'C':
                             isopeptide_indices.append(a.index + 1)
+                            isopeptide_bonds.append(f"{a.residue.name} {a.residue.resSeq} {a.name}")
                 if r.name == 'LYQ':
                     r.name = 'LYS'
                     for a in r.atoms:
@@ -363,6 +385,7 @@ def parallel_xplor(ubq_sites, simdir='/home/andrejb/Research/SIMS/2017_*', n_thr
                         if a.name == 'NQ':
                             a.name = 'NZ'
                             isopeptide_indices.append(a.index + 1)
+                            isopeptide_bonds.append(f"{a.residue.name} {a.residue.resSeq} {a.name}")
                         if a.name == 'HQ': a.name = 'HZ1'
 
             # parallel call
@@ -373,6 +396,8 @@ def parallel_xplor(ubq_sites, simdir='/home/andrejb/Research/SIMS/2017_*', n_thr
                                                                                                testing=testing,
                                                                                                from_tmp=from_tmp,
                                                                                                yaml_file=yaml_file,
+                                                                                               fix_isopeptides=fix_isopeptides,
+                                                                                               isopeptide_bonds=isopeptide_bonds,
                                                                                                **kwargs) for
                                                                frame, frame_no in zip(traj[:max_len:subsample],
                                                                                       np.arange(traj.n_frames)[
@@ -417,78 +442,6 @@ def _start_series_with_info(frame, traj_file, top_file, frame_no):
     pdb_file = os.path.join(os.getcwd(), f'tmp_{basename}_frame_{frame_no}_hash_{abs(hash(frame))}.pdb')
 
     return series, basename, pdb_file
-
-
-def get_series_with_conect(frame, traj_file, top_file, frame_no, testing=False, from_tmp=False, yaml_file='', **kwargs):
-    """Similar to `get_series_from_mdtraj`, but using parmed and tuning the psf-
-    file, so XPLOR can read it.
-    
-    Arguments for XPLOR can be provided by either specifying a yaml file, or
-    providing them as keyword_args to this function. For example you can use
-    provide `psol_call_parameters_tauc = 0.4` to set the correlation time of the
-    psol potential to 0.4. The difference between `psol_call_parameters_tauc`
-    and `psol_set_parameters_TauC` is, that the first is provided to psol, when
-    it is instantiated (called):
-
-    ```python
-    psol = create_PSolPot(name=kwargs['psol_call_parameters_name'],
-                          file=kwargs['psol_call_parameters_restraints'],
-                          tauc=kwargs['psol_call_parameters_tauc'],
-                          ...)
-    ```
-
-    The other is provided in a for loop with call signatures similar to:
-
-    ```python
-    prefix = 'psol_set_parameters_'
-    for key, value in kwargs.items():
-    if key.startswith(prefix):
-        key = 'set' + key.replace(prefix, '')
-        if isinstance(value, bool) and value:
-            if key == 'setVerbose':
-                getattr(psol, key)(True)
-            # getattr(psol, key)() # currently not working
-        else:
-            getattr(psol, key)(value)
-    ```
-
-    In this code block the parameters that are set with code like this:
-
-    ```python
-    psol.setTauC(0.4)
-    psol.setGammaI(26.752196)
-    ```
-
-    are set.
-
-    Args:
-        frame (md.Trajectory): An `mdtraj.core.Trajectory` instance with 1 frame.
-        traj_file (str): The location of the original trajectory.
-        top_file (str): The location of the original topology.
-        frame_no (int): The frame number the trajectory originates from.
-
-    Keyword Args:
-        yaml_file (str, optional): Path to a yaml file. If an empty string is provided
-            the defaults.yml file from xplor/data is loaded. Defaults to ''.
-        from_tmp (bool, optional): Changes the executable of the command to
-            work with an ssh interpreter to 134.34.112.158. If set to false,
-            the executable will be taken from xplor/scripts.
-            Defaults to False
-        testing (bool, optional): Adds the '-testing' flag to the command.
-            Defaults to False.
-        **kwargs: Arbitrary keyword arguments. Keywords that are not flags
-            of the xplor/scripts/xplor_single_struct_script.py will be discarded.
-    
-    Returns:
-        pd.Series: A pandas series instance
-    
-    """
-    series, basename, pdb_file = _start_series_with_info(frame, traj_file, top_file, frame_no)
-    should_be_residue_number = frame.n_residues
-
-
-
-    # frame.save_pdb(pdb_file)
 
 
 def _test_xplor_with_pdb(pdb_file):
@@ -614,15 +567,15 @@ def test_conect(traj_file, pdb_file, remove_after=True, frame_no=0, ast_print=0,
     call_pdb2psf('test_mdtraj.pdb', dir_, cwd)
 
     # call xplor with this file
-    out_psf_from_psd2psf, _ = _test_xplor_with_psf(mdtraj_psf, mdtraj_pdb)
+    out_psf_from_pdb2psf, _ = _test_xplor_with_psf(mdtraj_psf, mdtraj_pdb)
 
     # check the output
     if _:
         print('[DEBUG]: XPLOR with psf (from pdb2psf) and pdb (from MDTraj) succeeded.')
-        print('[VALUES]: ', ast.literal_eval(out_psf_from_psd2psf.splitlines()[-1])[ast_print])
+        print('[VALUES]: ', ast.literal_eval(out_psf_from_pdb2psf.splitlines()[-1])[ast_print])
     else:
         print('[ERROR]: XPLOR with psf (from pdb2psf) and pdb (from MDTraj) DID NOT SUCCEED.')
-        print('[ERROR]: ', out_psf_from_psd2psf)
+        print('[ERROR]: ', out_psf_from_pdb2psf)
 
     if 'm1' in traj_file:
         traj_atom_slice = traj.atom_slice(traj.top.select('not residue 76 and not residue 77'))
@@ -634,18 +587,21 @@ def test_conect(traj_file, pdb_file, remove_after=True, frame_no=0, ast_print=0,
 
         if _:
             print('[DEBUG]: XPLOR from M1-linked diUBQ (without GLY76 and MET77) with psf (from pdb2psf) and pdb (from MDTraj) succeeded.')
-            print('[VALUES]: ', ast.literal_eval(out_removed_linkage_from_m1.splitlines()[-1])[ast_print])
+            value = ast.literal_eval(out_removed_linkage_from_m1.splitlines()[-1])[ast_print]
+            print('[VALUES]: ', value)
         else:
             print('[ERROR]: XPLOR from M1-linked diUBQ (without GLY76 and MET77) with psf (from pdb2psf) and pdb (from MDTraj) DID NOT SUCCEED.')
             print('[ERROR]: ', out_removed_linkage_from_m1)
 
-        test1 = ast.literal_eval(out_psf_from_psd2psf.splitlines()[-1])[ast_print][-1]
+        test1 = ast.literal_eval(out_psf_from_pdb2psf.splitlines()[-1])[ast_print][-1]
         test2 = ast.literal_eval(out_removed_linkage_from_m1.splitlines()[-1])[ast_print][-1]
 
         if test1 != test2:
+            segid = int(value[1])
+            residue = traj_atom_slice.top.atom(traj_atom_slice.top.select(f'resSeq {segid}')[0]).residue
             print("[SUCCESS]: After removing GLY76 and MET77 from M1-linked diUBQ, the "
                   "Tensor of inertia changed and thus the R2/R2 relax ratios changed. "
-                  f"From {test1} (normal M1-diUBQ) to {test2} (M1-diUBQ w/o GLY76 and MET77. "
+                  f"From {test1} ({residue} of normal M1-diUBQ) to {test2} ({residue} of M1-diUBQ w/o GLY76 and MET77). "
                   "How can this effect be brought to K6-diUBQ?")
             return
 
@@ -674,7 +630,19 @@ def test_conect(traj_file, pdb_file, remove_after=True, frame_no=0, ast_print=0,
 
     out_manually_added_bonds, _ = _test_xplor_with_psf(mdtraj_copy_psf, mdtraj_copy_pdb)
     if _:
-        if any([i[-1] != j[-1] for i, j in zip(out_psf_from_psd2psf, out_manually_added_bonds)]):
+        if any([i[-1] != j[-1] for i, j in zip(out_psf_from_pdb2psf, out_manually_added_bonds)]):
+            # from out_manually added bonds one aa is missing
+            data1 = ast.literal_eval(out_psf_from_pdb2psf.splitlines()[-1])
+            data2 = ast.literal_eval(out_manually_added_bonds.splitlines()[-1])
+
+            # data2 does not contain aa resSeq 144
+            values1 = np.array([i[2] for i in data1 if int(i[1]) <= 143])
+            values2 = np.array([i[2] for i in data2 if int(i[1]) <= 143])
+            if not any(np.equal(values1, values2)):
+                mean = np.mean(values2 - values1)
+                std = np.std(values2 - values1)
+                print("[DEBUG]: All values between 'out_psf_from_pdb2psf' differ compared to 'out_manually_added_bonds'")
+                print(f"[DEBUG]: The mean difference is {mean}, the standard deviation is {std}")
             print("[SUCCESS]: The command succeeded and the values differ at some positions")
             return
         else:
@@ -683,8 +651,6 @@ def test_conect(traj_file, pdb_file, remove_after=True, frame_no=0, ast_print=0,
     else:
         print('[ERROR]: XPLOR with  manually added bond to psf file DID NOT SUCCEED.')
         print('[ERROR]: ', out_manually_added_bonds)
-
-    raise Exception("STOP")
 
     # parmed part
     struct = pmd.openmm.load_topology(omm_top.topology)
@@ -942,7 +908,9 @@ def _fix_parmed_psf(psf_file):
             else:
                 f.write(line + '\n')
 
-def get_series_from_mdtraj(frame, traj_file, top_file, frame_no, testing=False, from_tmp=False, yaml_file='', **kwargs):
+def get_series_from_mdtraj(frame, traj_file, top_file, frame_no, testing=False,
+                           from_tmp=False, yaml_file='', fix_isopeptides=True,
+                           check_fix_isopeptides=False, isopeptide_bonds=None, **kwargs):
     """Saves a temporary pdb file which will then be passed to call_xplor_with_yaml
 
     Arguments for XPLOR can be provided by either specifying a yaml file, or
@@ -998,6 +966,16 @@ def get_series_from_mdtraj(frame, traj_file, top_file, frame_no, testing=False, 
             Defaults to False
         testing (bool, optional): Adds the '-testing' flag to the command.
             Defaults to False.
+        fix_isopeptides (bool, optional): Whether to fix isopeptide bonds using the
+            technique developed in `check_conect`. Defaults to True.
+        check_fix_isopeptides (bool, optional): Whether to compare the results
+            from a whole system (`fix_isopeptides` True) and a disjoint
+            system (`fix_isopeptides` False). When this option is set to True,
+            the function does not return anything, but rather prints a message,
+            if the two different isopeptides give identical or different results.
+            This function is meant for testing. Defaults to False.
+        isopeptide_bonds (Union[list[str], None], optional): When you choose to fix
+            the isopeptides (`fix_isopeptides` set to True), you
         **kwargs: Arbitrary keyword arguments. Keywords that are not flags
             of the xplor/scripts/xplor_single_struct_script.py will be discarded.
 
@@ -1006,46 +984,81 @@ def get_series_from_mdtraj(frame, traj_file, top_file, frame_no, testing=False, 
 
     """
     # pre-formatted series
-    series, basename, pdb_file = _start_series_with_info(traj, traj_file, top_file, frame_no)
+    series, basename, pdb_file = _start_series_with_info(frame, traj_file, top_file, frame_no)
 
     # how many residues.
     should_be_residue_number = frame.n_residues
 
-    frame.save_pdb(pdb_file)
-
-    try:
-        out = call_xplor_with_yaml(pdb_file, from_tmp=from_tmp, testing=testing, yaml_file=yaml_file, **kwargs)
-        out = ast.literal_eval(out)
-    finally:
-        os.remove(pdb_file)
-
-    if series['proximal ILE3 sPRE'] == 0 and series['proximal PHE4 sPRE'] == 0:
-        print(cmd)
-        print(out)
-        print(psol)
-        raise Exception(f"This psol value should not be 0. Traj is {traj_file}, frame is {frame_no}")
-
-    for o in out:
-        if int(o[1]) <= (should_be_residue_number / 2) - 1:
-            resSeq = int(o[1])
-            position = 'proximal'
-        else:
-            resSeq = int(int(o[1]) - (should_be_residue_number / 2))
-            position = 'distal'
+    if fix_isopeptides:
+        if isopeptide_bonds is None:
+            raise Exception("Con only fix psf file when provided a list of str as argument `isopeptide_bonds`.")
+        psf_file = pdb_file.replace('.pdb', '.psf')
         try:
-            resname = frame.top.residue(int(o[1]) - 1).name
-        except TypeError:
-            print(o)
-            raise
-        if o[0] == 'rrp600':
-            series[f'{position} {resname}{resSeq} 15N_relax_600'] = o[2]
-        elif o[0] == 'rrp800':
-            series[f'{position} {resname}{resSeq} 15N_relax_800'] = o[2]
-        elif o[0] == 'psol':
-            series[f'{position} {resname}{resSeq} sPRE'] = o[2]
+            frame.save_pdb(pdb_file)
+            call_pdb2psf(os.path.split(pdb_file)[1], os.getcwd(), os.getcwd())
+            _add_bond_to_psf(psf_file, isopeptide_bonds)
+            _rename_atoms_according_to_charmm(psf_file, pdb_file)
+            out = call_xplor_with_yaml(pdb_file, psf_file=psf_file, from_tmp=from_tmp, testing=testing,
+                                       yaml_file=yaml_file, fix_isopeptides=True, **kwargs)
+            out = ast.literal_eval(out)
+        finally:
+            if os.path.isfile(pdb_file): os.remove(pdb_file)
+            if os.path.isfile(psf_file): os.remove(psf_file)
 
-    basename, ubq_site = get_ubq_site_and_basename(traj_file)
-    series['basename'] = basename
-    series['ubq_site'] = ubq_site
+        values1 = np.array([i[2] for i in out if i[0] == 'rrp600' and int(i[1]) <= 143])
+
+    if not fix_isopeptides or check_fix_isopeptides:
+        frame.save_pdb(pdb_file)
+
+        try:
+            out = call_xplor_with_yaml(pdb_file, psf_file=None, from_tmp=from_tmp, testing=testing,
+                                       yaml_file=yaml_file, fix_isopeptides=False, **kwargs)
+            out = ast.literal_eval(out)
+        finally:
+            os.remove(pdb_file)
+
+        if series['proximal ILE3 sPRE'] == 0 and series['proximal PHE4 sPRE'] == 0:
+            print(cmd)
+            print(out)
+            print(psol)
+            raise Exception(f"This psol value should not be 0. Traj is {traj_file}, frame is {frame_no}")
+
+        for o in out:
+            if int(o[1]) <= (should_be_residue_number / 2) - 1:
+                resSeq = int(o[1])
+                position = 'proximal'
+            else:
+                resSeq = int(int(o[1]) - (should_be_residue_number / 2))
+                position = 'distal'
+            try:
+                resname = frame.top.residue(int(o[1]) - 1).name
+            except TypeError:
+                print(o)
+                raise
+            if o[0] == 'rrp600':
+                series[f'{position} {resname}{resSeq} 15N_relax_600'] = o[2]
+            elif o[0] == 'rrp800':
+                series[f'{position} {resname}{resSeq} 15N_relax_800'] = o[2]
+            elif o[0] == 'psol':
+                series[f'{position} {resname}{resSeq} sPRE'] = o[2]
+
+        basename, ubq_site = get_ubq_site_and_basename(traj_file)
+        series['basename'] = basename
+        series['ubq_site'] = ubq_site
+
+    if check_fix_isopeptides:
+        values2 = np.array([i[2] for i in out if i[0] == 'rrp600' and int(i[1]) <= 143])
+        if not any(np.equal(values1, values2)):
+            mean = np.mean(values1 - values2)
+            std = np.std(values1 - values2)
+            print("Values for rrp600 with isopeptide bond")
+            print(values1)
+            print("Values for rrp600 without isopeptide bonds")
+            print(values2)
+            print(f"The mean difference is {mean}, the standard deviation is {std}")
+            print("The command succeeded and the values differ at some positions")
+            return
+        else:
+            raise Exception("Values are identical for with and without isopeptide.")
             
     return series

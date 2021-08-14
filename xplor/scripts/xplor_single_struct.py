@@ -7,7 +7,7 @@ import numpy as np
 class MyParser(argparse.ArgumentParser):
     def error(self, message):
         sys.stderr.write('error: %s\n' % message)
-        self.print_help()
+        # self.print_help()
         sys.exit(2)
 
 def str2bool(v):
@@ -79,8 +79,17 @@ def main(**kwargs):
 
     # load pdb
     import protocol
-    protocol.loadPDB(kwargs['pdb'], deleteUnknownAtoms=True)
-    protocol.initParams('protein')
+    if kwargs['struct_loading_method'] == 'loadPDB':
+        protocol.loadPDB(kwargs['pdb'], deleteUnknownAtoms=True)
+        protocol.initParams('protein')
+    elif kwargs['struct_loading_method'] == 'initStruct':
+        protocol.initStruct(kwargs['psf'])
+        protocol.initCoords(kwargs['pdb'])
+        protocol.initParams('protein')
+    else:
+        print(f"Unknown option for -struct_loading_method. Only 'loadPDB' and 'initStruct' are allowed. Uou provided {kwargs['struct_loading_method']}")
+        sys.exit(2)
+
     
     if not 'psol_call_parameters_restraints' in kwargs and not 'rrp600_call_parameters_restraints' in kwargs and not 'rrp800_call_parameters_restraints' in kwargs:
         raise Exception("Provide ad least one .tbl file")
@@ -160,7 +169,10 @@ def main(**kwargs):
 
 def entrypoint():
     parser = MyParser(description="Get restraints from single file")
+    parser.add_argument("-struct_loading_method", required=False, type=str, default="loadPDB",
+                        help="""Sets the method with which the pdb/psf should be loaded.""")
     parser.add_argument('-pdb', metavar='<string>', required=True, type=str, help="The pdb file to run the sim on.")
+    parser.add_argument('-psf', metavar='<string>', required=False, type=str, help="The psf file to run the sim on.")
     parser.add_argument('-testing', required=False, action='store_true',
                         help="Does not run XPLOR but uses np.random with seed 1 to produce predictable results.")
     parser.add_argument("-psol_call_parameters_name", required=False, type=str, default="psol", help="""This is the name of the potential term assigned to this PSolPot object
