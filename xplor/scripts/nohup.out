@@ -1,0 +1,45 @@
+nohup: ignoring input
+Using procedure from `check_conect` to fix isopeptide bonds.
+traj 2017_04_27_G_2ub_k6_01_01 NOT FINISHED
+/home/kevin/software/xplor-nih/xplor-nih-3.2/bin
+
+Traceback (most recent call last):
+  File "/home/kevin/git/xplor_functions/xplor/scripts/./nohup_xplor.py", line 5, in <module>
+    xplor.functions.parallel_xplor(['k6', 'k29', 'k33'], df_outdir='/home/kevin/projects/tobias_schneider/values_from_every_frame/from_package_with_conect/', suffix='_df.csv', write_csv=True)
+  File "/home/kevin/git/xplor_functions/xplor/functions/functions.py", line 392, in parallel_xplor
+    out = Parallel(n_jobs=n_threads, prefer='threads')(delayed(get_series_from_mdtraj)(frame,
+  File "/home/kevin/.conda/envs/py39_tf2/lib/python3.9/site-packages/joblib/parallel.py", line 1054, in __call__
+    self.retrieve()
+  File "/home/kevin/.conda/envs/py39_tf2/lib/python3.9/site-packages/joblib/parallel.py", line 933, in retrieve
+    self._output.extend(job.get(timeout=self.timeout))
+  File "/home/kevin/.conda/envs/py39_tf2/lib/python3.9/multiprocessing/pool.py", line 771, in get
+    raise self._value
+  File "/home/kevin/.conda/envs/py39_tf2/lib/python3.9/multiprocessing/pool.py", line 125, in worker
+    result = (True, func(*args, **kwds))
+  File "/home/kevin/.conda/envs/py39_tf2/lib/python3.9/site-packages/joblib/_parallel_backends.py", line 595, in __call__
+    return self.func(*args, **kwargs)
+  File "/home/kevin/.conda/envs/py39_tf2/lib/python3.9/site-packages/joblib/parallel.py", line 262, in __call__
+    return [func(*args, **kwargs)
+  File "/home/kevin/.conda/envs/py39_tf2/lib/python3.9/site-packages/joblib/parallel.py", line 262, in <listcomp>
+    return [func(*args, **kwargs)
+  File "/home/kevin/git/xplor_functions/xplor/functions/functions.py", line 1001, in get_series_from_mdtraj
+    out = call_xplor_with_yaml(pdb_file, psf_file=psf_file, from_tmp=from_tmp, testing=testing,
+  File "/home/kevin/git/xplor_functions/xplor/functions/functions.py", line 271, in call_xplor_with_yaml
+    raise Exception(f"Call to subprocess did not succeed. Here's the error: {err}, and the return code: {return_code}")
+Exception: Call to subprocess did not succeed. Here's the error: Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+  File "/home/kevin/software/xplor-nih/xplor-nih-3.2/python/xplorInit.py", line 122, in execfile
+    exec(code, globals, locals)
+  File "/home/kevin/git/xplor_functions/xplor/scripts/xplor_single_struct.py", line 450, in <module>
+    entrypoint()
+  File "/home/kevin/git/xplor_functions/xplor/scripts/xplor_single_struct.py", line 447, in entrypoint
+    main(**args)
+  File "/home/kevin/git/xplor_functions/xplor/scripts/xplor_single_struct.py", line 87, in main
+    protocol.initCoords(kwargs['pdb'])
+  File "/home/kevin/software/xplor-nih/xplor-nih-3.2/python/trace.py", line 220, in func_wrapper
+    return func(*args, **kwargs)
+  File "/home/kevin/software/xplor-nih/xplor-nih-3.2/python/protocol.py", line 818, in initCoords
+    unreadEntries)
+Exception: too many unreadable ATOM entries: 602
+PyInterp::command: error executing: >xplor.execfile('/home/kevin/git/xplor_functions/xplor/scripts/xplor_single_struct.py')<
+, and the return code: 1
