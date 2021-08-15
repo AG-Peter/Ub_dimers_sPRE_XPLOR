@@ -77,6 +77,15 @@ _ = xplor.functions.parallel_xplor(['k6', 'k11', 'k33'], from_tmp=True, max_len=
                                       suffix='_df.csv', specific_index=1740, break_early=True)
 print(_)
 
+# %% Maybe if I use the problem making files:
+pdb_file = '/home/kevin/git/xplor_functions/xplor/scripts/tmp_traj_nojump_frame.pdb'
+psf_file = '/home/kevin/git/xplor_functions/xplor/scripts/tmp_traj_nojump_frame.psf'
+
+test = xplor.functions.call_xplor_with_yaml(pdb_file, psf_file)
+
+# %% Prepare the psf files
+xplor.functions.create_psf_files(['k6', 'k11', 'k33'])
+
 # %% make the tbl files
 # xplor.functions.parse_input_files.make_15_N_table('data/spre_and_relaxation_data_k6_k29/relaxation_file_ub2_k6.txt',
 #                                 out_file='/home/kevin/git/xplor_functions/xplor/data/diUbi_sPRE_k6_w_CONECT.tbl')

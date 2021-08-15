@@ -24,8 +24,9 @@ from simtk.openmm.app import PDBFile
 # Globals
 ################################################################################
 
+
 __all__ = ['parallel_xplor', 'get_series_from_mdtraj', 'call_xplor_with_yaml',
-           'normalize_sPRE', 'test_conect']
+           'normalize_sPRE', 'test_conect', 'create_psf_files']
 
 
 ################################################################################
@@ -47,6 +48,68 @@ class Capturing(list):
 ################################################################################
 # Functions
 ################################################################################
+
+
+def create_psf_files(ubq_sites):
+    """Creates psf files by ubiquitylation site and saves it to data.
+
+    Because the psf files stay the same for a ubiquitylation site, this
+    function takes the computational overload from creating new psf files for
+    every frame.
+
+    Args:
+        ubq_sites (list[str]): The ubiquitylation sites to consider.
+
+    """
+    for ubq_site in ubq_sites:
+        gromos_top_file = f'/home/andrejb/Research/DEVA/2017_04_27_UBQ_TOPOLOGIES/top_G54A7/diUBQ/{ubq_site}_01/system.top'
+        with Capturing() as output:
+            omm_top = CustomGromacsTopFile(gromos_top_file, includeDir='/home/andrejb/Software/gmx_forcefields')
+
+        # mdtraj part
+        # pdb_file = f'/home/andrejb/Research/DEVA/2017_04_27_UBQ_TOPOLOGIES/top_G54A7/diUBQ/{ubq_site}_01/{ubq_site}_01.pdb'
+        pdb_file = glob.glob(f'/home/andrejb/Research/SIMS/2017_*_G_2ub_{ubq_site}_01_01/start.pdb')
+        assert len(pdb_file) == 1
+        pdb_file = pdb_file[0]
+        traj = md.load(pdb_file)
+        print(traj.n_atoms)
+        print(md.Topology.from_openmm(omm_top.topology).n_atoms)
+        traj.top = md.Topology.from_openmm(omm_top.topology)
+
+        isopeptide_bonds = []
+        for r in traj.top.residues:
+            if r.name == 'GLQ':
+                r.name = 'GLY'
+                for a in r.atoms:
+                    if a.name == 'C':
+                        isopeptide_bonds.append(f"{a.residue.name} {a.residue.resSeq} {a.name}")
+            if r.name == 'LYQ':
+                r.name = 'LYS'
+                for a in r.atoms:
+                    if a.name == 'CQ': a.name = 'CE'
+                    if a.name == 'NQ':
+                        a.name = 'NZ'
+                        isopeptide_bonds.append(f"{a.residue.name} {a.residue.resSeq} {a.name}")
+                    if a.name == 'HQ': a.name = 'HZ1'
+
+        assert os.path.isdir('xplor/data/')
+        tmp_pdb = f'tmp_{ubq_site}_pdb_for_pdb2psf.pdb'
+        tmp_pdb_with_dir = f'xplor/data/{tmp_pdb}'
+        tmp_psf = tmp_pdb.replace('.pdb', '.psf')
+        tmp_psf_with_dir = tmp_pdb_with_dir.replace('.pdb', '.psf')
+        final_psf = f'xplor/data/{ubq_site}_psf_for_xplor_with_added_bond.psf'
+        traj.save_pdb(tmp_pdb_with_dir)
+        try:
+            call_pdb2psf(tmp_pdb, 'xplor/data/', os.getcwd())
+            _add_bond_to_psf(tmp_psf_with_dir, isopeptide_bonds)
+            shutil.copyfile(tmp_psf_with_dir, final_psf)
+        except OSError as e:
+            raise OSError(f"Probably not working due to path problems. For this"
+                          f"function to work you should be in the xplor_functions"
+                          f"root dir. cwd: {os.getcwd()}. Error: {e}")
+        finally:
+            if os.path.isfile(tmp_pdb_with_dir): os.remove(tmp_pdb_with_dir)
+            if os.path.isfile(tmp_psf_with_dir): os.remove(tmp_psf_with_dir)
 
 
 def datetime_windows_and_linux_compatible():
