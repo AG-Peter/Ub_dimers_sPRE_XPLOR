@@ -48,3 +48,4 @@ Exception: Call to subprocess using pdb file /home/kevin/git/xplor_functions/xpl
 Exception: too many unreadable ATOM entries: 512
 PyInterp::command: error executing: >xplor.execfile('/home/kevin/git/xplor_functions/xplor/scripts/xplor_single_struct.py')<
 , and the return code: 1. Isaved the files that causes this error here:pdb: /home/kevin/git/xplor_functions/xplor/scripts/tmp_traj_nojump_frame.pdb,psf: /home/kevin/git/xplor_functions/xplor/scripts/tmp_traj_nojump_frame.psf
+nohup: ignoring input
