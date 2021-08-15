@@ -1,13 +1,17 @@
 nohup: ignoring input
+Redefining os.path.isfile to work with tmp_stringio.pdb
+Redefining open() to work with tmp_stringio.pdb
 Using procedure from `check_conect` to fix isopeptide bonds.
 traj 2017_04_27_G_2ub_k6_01_01 already finished
 traj 2017_04_27_G_2ub_k6_01_02 NOT FINISHED
 /home/kevin/software/xplor-nih/xplor-nih-3.2/bin
 
+/home/kevin/software/xplor-nih/xplor-nih-3.2/bin
+
 Traceback (most recent call last):
   File "/home/kevin/git/xplor_functions/xplor/scripts/./nohup_xplor.py", line 5, in <module>
-    xplor.functions.parallel_xplor(['k6', 'k29', 'k33'], df_outdir='/home/kevin/projects/tobias_schneider/values_from_every_frame/from_package_with_conect/', suffix='_df.csv', write_csv=True)
-  File "/home/kevin/git/xplor_functions/xplor/functions/functions.py", line 407, in parallel_xplor
+    xplor.functions.parallel_xplor(['k6', 'k11', 'k33'], df_outdir='/home/kevin/projects/tobias_schneider/values_from_every_frame/from_package_with_conect/', suffix='_df.csv')
+  File "/home/kevin/git/xplor_functions/xplor/functions/functions.py", line 506, in parallel_xplor
     out = Parallel(n_jobs=n_threads, prefer='threads')(delayed(get_series_from_mdtraj)(frame,
   File "/home/kevin/.conda/envs/py39_tf2/lib/python3.9/site-packages/joblib/parallel.py", line 1054, in __call__
     self.retrieve()
@@ -23,11 +27,11 @@ Traceback (most recent call last):
     return [func(*args, **kwargs)
   File "/home/kevin/.conda/envs/py39_tf2/lib/python3.9/site-packages/joblib/parallel.py", line 262, in <listcomp>
     return [func(*args, **kwargs)
-  File "/home/kevin/git/xplor_functions/xplor/functions/functions.py", line 1034, in get_series_from_mdtraj
+  File "/home/kevin/git/xplor_functions/xplor/functions/functions.py", line 1179, in get_series_from_mdtraj
     out = call_xplor_with_yaml(pdb_file, psf_file=psf_file, from_tmp=from_tmp, testing=testing,
-  File "/home/kevin/git/xplor_functions/xplor/functions/functions.py", line 277, in call_xplor_with_yaml
+  File "/home/kevin/git/xplor_functions/xplor/functions/functions.py", line 376, in call_xplor_with_yaml
     raise Exception(f"Call to subprocess using pdb file {pdb_file} did not succeed."
-Exception: Call to subprocess using pdb file /home/kevin/git/xplor_functions/xplor/scripts/tmp_traj_nojump_frame_3890_hash_7198030262625606658.pdb did not succeed.Here's the error: Traceback (most recent call last):
+Exception: Call to subprocess using pdb file /home/kevin/git/xplor_functions/xplor/scripts/tmp_traj_nojump_frame_475_hash_7209612413781197943.pdb did not succeed.Here's the error: Traceback (most recent call last):
   File "<string>", line 1, in <module>
   File "/home/kevin/software/xplor-nih/xplor-nih-3.2/python/xplorInit.py", line 122, in execfile
     exec(code, globals, locals)
@@ -41,6 +45,6 @@ Exception: Call to subprocess using pdb file /home/kevin/git/xplor_functions/xpl
     return func(*args, **kwargs)
   File "/home/kevin/software/xplor-nih/xplor-nih-3.2/python/protocol.py", line 818, in initCoords
     unreadEntries)
-Exception: too many unreadable ATOM entries: 710
+Exception: too many unreadable ATOM entries: 512
 PyInterp::command: error executing: >xplor.execfile('/home/kevin/git/xplor_functions/xplor/scripts/xplor_single_struct.py')<
 , and the return code: 1. Isaved the files that causes this error here:pdb: /home/kevin/git/xplor_functions/xplor/scripts/tmp_traj_nojump_frame.pdb,psf: /home/kevin/git/xplor_functions/xplor/scripts/tmp_traj_nojump_frame.psf
