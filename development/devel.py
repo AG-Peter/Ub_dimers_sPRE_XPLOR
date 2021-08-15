@@ -31,16 +31,25 @@ xtc = '/home/andrejb/Research/SIMS/2017_04_27_G_2ub_k6_01_01/traj_nojump.xtc'
 
 xplor.functions.test_conect(xtc, pdb, remove_after=True, ast_print=0)
 
-# %% Explore Error with
-# 2017_04_27_G_2ub_k6_01_02
-# /tmp/pycharm_project_462/tmp_traj_nojump_frame_1740_hash_4981682028013484614.pdb
+# %% This works without problems. Something else must cause the error:
+# check the files
+from xplor.functions.functions import check_pdb_and_psf_integrity
+pdb_file = '/home/kevin/git/xplor_functions/xplor/scripts/2021-08-14_crash_tmp_traj_nojump_frame.pdb'
+psf_file = '/home/kevin/git/xplor_functions/xplor/scripts/2021-08-14_crash_tmp_traj_nojump_frame.psf'
+check_pdb_and_psf_integrity(pdb_file, psf_file)
+
+# %% The atom HB1 in LEU8 is not named correclty
+# In the psf: HB1
+# In the pdb: HHB1
+# Why is that?
+# Origin: 2017_04_27_G_2ub_k6_01_02, frame 475
 from xplor.functions.functions import Capturing
 from xplor.functions.custom_gromacstopfile import CustomGromacsTopFile
 
 pdb = '/home/andrejb/Research/SIMS/2017_04_27_G_2ub_k6_01_02/start.pdb'
 xtc = '/home/andrejb/Research/SIMS/2017_04_27_G_2ub_k6_01_02/traj_nojump.xtc'
 
-frame = md.load_frame(xtc, 1740, top=pdb)
+frame = md.load_frame(xtc, 475, top=pdb)
 
 gromos_top_file = f'/home/andrejb/Research/DEVA/2017_04_27_UBQ_TOPOLOGIES/top_G54A7/diUBQ/k6_01/system.top'
 with Capturing() as output:
@@ -70,12 +79,7 @@ for r in frame.top.residues:
 series = xplor.functions.get_series_from_mdtraj(frame, xtc, pdb, 0, from_tmp=True,
                                                 check_fix_isopeptides=True, isopeptide_bonds=isopeptide_bonds)
 
-# %% This works without problems. Something else must cause the error:
 
-_ = xplor.functions.parallel_xplor(['k6', 'k11', 'k33'], from_tmp=True, max_len=-1, write_csv=False,
-                                      df_outdir='/home/kevin/projects/tobias_schneider/values_from_every_frame/from_package_with_conect/',
-                                      suffix='_df.csv', specific_index=1740, break_early=True)
-print(_)
 
 # %% Maybe if I use the problem making files:
 pdb_file = '/home/kevin/git/xplor_functions/xplor/scripts/tmp_traj_nojump_frame.pdb'

@@ -29,6 +29,20 @@ import builtins
 __all__ = ['parallel_xplor', 'get_series_from_mdtraj', 'call_xplor_with_yaml',
            'normalize_sPRE', 'test_conect', 'create_psf_files']
 
+MASSES = {'1.00800': 'H', '14.0070': 'N', '12.0110': 'C', '15.9990': 'O', '32.0600': 'S'}
+# mapping is pdb: psf
+H_MAPPING = {'H': 'HT1', 'H2': 'HT2', 'H3': 'HT3'}
+OXT_MAPPING = {'O': 'OT1', 'OXT': 'OT2'}
+# MANUAL_MAPPING = {'H': 'HT1', 'H2': 'HT2', 'H3': 'HT3', 'O': 'OT1', 'OXT': 'OT2'}
+#                   'CA': 'CA', 'CB': 'CB', 'CG': 'CG', 'CD': 'CD', 'CE': 'CE',
+#                   'C': 'C', 'HA': 'HA',
+#                   'HB1': 'HB1', 'HB2': 'HB2', 'HB3': 'HB3',
+#                   'HG1': 'HG1', 'HG2': 'HG2', 'HG3': 'HG3',
+#                   'HD1': 'HD1', 'HD2': 'HD2', 'HD3': 'HD3',
+#                   'HE1': 'HE1', 'HE2': 'HE2', 'HE3': 'HE3',
+#                   'N': 'N', 'NE2': 'NE2',
+#                   'OE1': 'OE1',}
+
 
 def _redefine_os_path_exists():
     orig_func = os.path.exists
@@ -108,8 +122,8 @@ def create_psf_files(ubq_sites):
         assert len(pdb_file) == 1
         pdb_file = pdb_file[0]
         traj = md.load(pdb_file)
-        print(traj.n_atoms)
-        print(md.Topology.from_openmm(omm_top.topology).n_atoms)
+        # print(traj.n_atoms)
+        # print(md.Topology.from_openmm(omm_top.topology).n_atoms)
         traj.top = md.Topology.from_openmm(omm_top.topology)
 
         isopeptide_bonds = []
@@ -138,6 +152,9 @@ def create_psf_files(ubq_sites):
         try:
             call_pdb2psf(tmp_pdb, 'xplor/data/', os.getcwd())
             _add_bond_to_psf(tmp_psf_with_dir, isopeptide_bonds)
+            _rename_atoms_according_to_charmm(tmp_psf_with_dir, tmp_pdb_with_dir)
+            # call pdb2psf again when the termini are fixed
+            call_pdb2psf(tmp_pdb, 'xplor/data/', os.getcwd())
             shutil.copyfile(tmp_psf_with_dir, final_psf)
         except OSError as e:
             raise OSError(f"Probably not working due to path problems. For this"
@@ -146,6 +163,49 @@ def create_psf_files(ubq_sites):
         finally:
             if os.path.isfile(tmp_pdb_with_dir): os.remove(tmp_pdb_with_dir)
             if os.path.isfile(tmp_psf_with_dir): os.remove(tmp_psf_with_dir)
+
+
+def check_pdb_and_psf_integrity(pdb_file, psf_file, ubq_site):
+    """Checks, whether a combination of psf_file and pdb_file have the same atoms."""
+    with open(psf_file, 'r') as f:
+        psf_file = f.read()
+    hunks = psf_file.split('\n\n')
+    atom_hunk = hunks[['!NATOM' in hunk for hunk in hunks].index(True)].splitlines()[1:]
+
+    with open(pdb_file, 'r') as f:
+        lines_pdb = list(filter(lambda x: x.startswith('ATOM'), f.read().splitlines()))
+
+    psf_atoms = {int(i[0]): i[4] for i in map(str.split, atom_hunk)}
+    pdb_atoms = {int(i[1]): i[2] for i in map(str.split, lines_pdb)}
+
+    add = 0
+    ubq_site_resid = int(ubq_site.lstrip('k')) + 76
+
+    for i in range(1, 1 + max([len(psf_atoms), len(pdb_atoms)])):
+        ii = i + add
+        if '68   HIS  HD1' in atom_hunk[i - 1]:
+            add -= 1
+            continue
+        if f'{ubq_site_resid:<5}LYS  HZ3' in atom_hunk[i - 1]:
+            add -= 1
+            continue
+        if '144  HIS  HD1' in atom_hunk[i - 1]:
+            add -= 1
+            continue
+        if psf_atoms[i] != pdb_atoms[ii]:
+            print('pdb atom:', pdb_atoms[ii], 'psf atom:', psf_atoms[i])
+            print('\n')
+            print(lines_pdb[ii - 1])
+            print('\n')
+            print(atom_hunk[i - 1])
+            print('\n')
+            for j in range(ii-5, ii+5):
+                print(lines_pdb[j])
+            print('\n')
+            for j in range(i - 5, i + 5):
+                print(atom_hunk[j])
+            return False
+    return True
 
 
 def datetime_windows_and_linux_compatible():
@@ -861,17 +921,18 @@ def _rename_atoms_according_to_charmm(psf_file, pdb_file, saveloc=None):
 
     """
     fixer = PDBFixer(pdb_file)
-    fixer.addMissingHydrogens()
+    fixer.addMissingHydrogens(pH=13.0)
 
     if not isinstance(pdb_file, RAMFile):
         os.remove(pdb_file)
     else:
         pdb_file.seek(0)
 
-    buffer = StringIO()
+    buffer = RAMFile()
     PDBFile.writeFile(fixer.topology, fixer.positions, buffer)
     buffer.seek(0)
     lines = buffer.read().splitlines()
+    buffer.seek(0)
     atom_lines = [line.startswith('ATOM') for line in lines].count(True)
 
     # for i, (line1, line2) in enumerate(zip(pdb_file.read().splitlines(), lines)):
@@ -879,24 +940,127 @@ def _rename_atoms_according_to_charmm(psf_file, pdb_file, saveloc=None):
     #     print('line2: ', line2)
     #     if i == 10:
     #         break
+    # print(_count_atoms(psf_file))
+    # print(fixer.topology.getNumAtoms())
 
     with open(psf_file, 'r') as f:
         full_file = f.read()
     hunks = full_file.split('\n\n')
     atom_hunk = hunks[['!NATOM' in hunk for hunk in hunks].index(True)].splitlines()[1:]
+    columns = ['Atom ID', 'Segment ID', 'Residue ID', 'Res. Name', 'Atom Name', 'Atom Type', 'Charge', 'Mass', 'Extra']
+    psf_atoms = pd.DataFrame([x.split() for x in atom_hunk], columns=columns)
+    psf_atoms['element'] = psf_atoms['Mass'].map(MASSES)
+    assert not psf_atoms['element'].isna().any(), print(psf_atoms[psf_atoms['element'].isna()])
 
     new_pdb = []
     i = 0
+    remove = 0
     for line in lines:
         if line.startswith('ATOM'):
-            psf_atom = atom_hunk[i].split()[4]
+
+            if line.split()[2] == 'H' and int(line.split()[5]) == 77:
+                line = line.replace('  H   ', '  HN  ')
+                lines[i] = line
+
+            if line.split()[2] == 'H2' and int(line.split()[5]) == 77:
+                remove += 1
+                continue
+
+            if line.split()[2] == 'H3' and int(line.split()[5]) == 77:
+                remove += 1
+                continue
+
+            # fix the number names from pdbfixer
+            if any([x.isdigit() for x in line.split()[2]]):
+                atom_name = line.split()[2]
+                resname = line.split()[3]
+                atom = atom_name[:-1]
+                number = int(atom_name[-1])
+                atom_before = lines[i - 1].split()[-1]
+                atom_name_before = lines[i - 1].split()[2]
+
+                # get number before
+                if any([x.isdigit() for x in lines[i - 1].split()[2]]):
+                    number_before = int(lines[i - 1].split()[2][-1])
+                else:
+                    number_before = -1
+
+                # decide how to change the name of the atom
+                if 'N' in atom_name or 'C' in atom_name:
+                    pass
+                elif atom_name == 'HD2' and resname == 'PRO':
+                    pass
+                elif atom_name == 'HD3' and resname == 'PRO':
+                    line = line.replace('HD3', 'HD1')
+                    lines[i] = line
+                elif number == number_before and (atom_before == 'C' or atom_before == 'N'):
+                    pass
+                elif number == 1 and atom_name_before != 'HZ1':
+                    pass
+                elif number == 1 and atom_name_before == 'HZ1':
+                    # flip HZ1 and HZ2
+                    line = line.replace('HZ1', 'HZ2')
+                    lines[i] = line
+                elif not f'{atom}{number - 1}' in lines[i-1] and not lines[i - 1].split()[2] == atom:
+                    line = line.replace(atom_name, f'{atom}{number - 1}')
+                    lines[i] = line
+
+            # change the atom id for lines after the isopeptide MET77 N hydrogens have been dropped
+            if remove > 0:
+                atom_id = line.split()[1]
+                new_atom_id = str(int(atom_id) - remove)
+                line = line.replace(atom_id, new_atom_id)
+                lines[i] = line
+
+            # check where the lines are identical
+            identical_elements = psf_atoms['element'] == line.split()[-1]
+            identical_resid = psf_atoms['Residue ID'] == line.split()[5]
+            identical_resname = psf_atoms['Res. Name'] == line.split()[3]
+            identical_name = psf_atoms['Atom Name'] == line.split()[2]
+            identical = identical_elements & identical_resid & identical_resname & identical_name
+
+            # overwrite the lines
+            if not identical.any():
+                # MANUAL_MAPPING = {'H': 'HT1', 'H2': 'HT2', 'H3': 'HT3', 'O': 'OT1', 'OXT': 'OT2'}
+                # for HT1
+                if line.split()[2] in ['H', 'H2', 'H3'] and (int(line.split()[5]) == 1 or int(line.split()[5]) == 77):
+                    psf_atom = H_MAPPING[line.split()[2]]
+                # for isop HA1, HA2
+                # elif line.split()[2] in ['HA1', 'HA2'] and int(line.split()[5]) == 77:
+                #     print(line)
+                #     raise NotImplementedError()
+                # for OXT
+                elif line.split()[2] in ['O', 'OXT'] and  int(line.split()[5]) == 152:
+                    psf_atom = OXT_MAPPING[line.split()[2]]
+                # for inbetween HN
+                elif line.split()[2] == 'H' and int(line.split()[5]) != 1  and int(line.split()[5]) != 77:
+                    psf_atom = 'HN'
+                else:
+                    print(line)
+                    for _ in lines[i - 3:i + 10]:
+                        print(_)
+                    index = np.where(identical)[0]
+                    for _ in range(i - 3, i + 10):
+                        print(atom_hunk[_])
+                    raise Exception(f"Could not find ANY matching atom for\n{line}")
+            elif pd.value_counts(identical)[True] == 1:
+                index = np.where(identical)[0][0]
+                psf_atom = atom_hunk[index].split()[4]
+            else:
+                print('\n', line, '\n')
+                for _ in lines[i-1:i+10]:
+                    print(_)
+                index = np.where(identical)[0]
+                for idx in index:
+                    print(atom_hunk[idx])
+                raise Exception("Could not determine atom. Possible atoms are:")
             if len(psf_atom) > 4:
                 raise Exception(f"This atom is too long: {psf_atom}")
             if len(psf_atom) == 4:
                 line = line[:12] + f"{psf_atom:<3}" + line[16:]
             else:
                 line = line[:13] + f"{psf_atom:<3}" + line[16:]
-            i += 1
+        i += 1
         new_pdb.append(line)
 
     # for i, (line1, line2) in enumerate(zip(lines, new_pdb)):
@@ -1176,6 +1340,11 @@ def get_series_from_mdtraj(frame, traj_file, top_file, frame_no, testing=False,
         pdb_stringio.seek(0)
         try:
             pdb_stringio.write(pdb_file)
+            if check_fix_isopeptides:
+                if not check_pdb_and_psf_integrity(pdb_file, psf_file, ubq_site):
+                    raise Exception("psf and pdb are not integer.")
+                else:
+                    print('psf and pdb are integer.')
             out = call_xplor_with_yaml(pdb_file, psf_file=psf_file, from_tmp=from_tmp, testing=testing,
                                        yaml_file=yaml_file, fix_isopeptides=True, **kwargs)
             out = ast.literal_eval(out)
