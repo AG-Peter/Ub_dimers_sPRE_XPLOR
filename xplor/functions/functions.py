@@ -18,6 +18,7 @@ from ..misc import get_local_or_proj_file, get_iso_time
 from .psf_parser import PSFParser
 from pdbfixer import PDBFixer
 from simtk.openmm.app import PDBFile
+import builtins
 
 
 ################################################################################
@@ -27,6 +28,41 @@ from simtk.openmm.app import PDBFile
 
 __all__ = ['parallel_xplor', 'get_series_from_mdtraj', 'call_xplor_with_yaml',
            'normalize_sPRE', 'test_conect', 'create_psf_files']
+
+
+def _redefine_os_path_exists():
+    orig_func = os.path.exists
+    def new_func(path):
+        if path.lower() == 'tmp_stringio.pdb':
+            return True
+        else:
+            return orig_func(path)
+    os.path.exists = new_func
+
+
+def _redefine_open():
+    orig_func = builtins.open
+    def new_func(*args, **kwargs):
+        if args[0].lower() == 'tmp_stringio.pdb':
+            return args[0]
+        else:
+            return orig_func(*args, **kwargs)
+    builtins.open = new_func
+
+
+def _wrap_open(function):
+    def func(*args, **kwargs):
+        if args[0].lower() == 'tmp_stringio.pdb':
+            return args[0]
+        else:
+            return function(*args, **kwargs)
+    return func
+
+
+_redefine_os_path_exists()
+_redefine_open()
+print('Redefining os.path.isfile to work with tmp_stringio.pdb')
+print('Redefining open() to work with tmp_stringio.pdb')
 
 
 ################################################################################
@@ -805,7 +841,7 @@ def test_conect(traj_file, pdb_file, remove_after=True, frame_no=0, ast_print=0,
                 os.remove(file)
 
 
-def _rename_atoms_according_to_charmm(psf_file, pdb_file):
+def _rename_atoms_according_to_charmm(psf_file, pdb_file, saveloc=None):
     """Takes a psf file and a pdb file. Adds Hydrogens to the pdb file with
     pdbfixer, overwrites the pdb file and renames atoms, like they are named in
     the psf file.
@@ -814,6 +850,12 @@ def _rename_atoms_according_to_charmm(psf_file, pdb_file):
         psf_file (str): The path to the psf file.
         pdb_file (str): The path to the pdb file.
 
+    Keyword Args:
+        saveloc (Union[str, None], optional): Where to save the pdb file to.
+            This is useful, when `pdb_file` is an instance of `RAMFile`.
+            If None is provided, `pdb_file` will be overwritten.
+            Defaults to None.
+
     Returns:
         parmed.Structure: The ouptut structure.
 
@@ -821,12 +863,22 @@ def _rename_atoms_according_to_charmm(psf_file, pdb_file):
     fixer = PDBFixer(pdb_file)
     fixer.addMissingHydrogens()
 
-    os.remove(pdb_file)
+    if not isinstance(pdb_file, RAMFile):
+        os.remove(pdb_file)
+    else:
+        pdb_file.seek(0)
+
     buffer = StringIO()
     PDBFile.writeFile(fixer.topology, fixer.positions, buffer)
     buffer.seek(0)
     lines = buffer.read().splitlines()
     atom_lines = [line.startswith('ATOM') for line in lines].count(True)
+
+    # for i, (line1, line2) in enumerate(zip(pdb_file.read().splitlines(), lines)):
+    #     print('line1: ', line1)
+    #     print('line2: ', line2)
+    #     if i == 10:
+    #         break
 
     with open(psf_file, 'r') as f:
         full_file = f.read()
@@ -847,7 +899,15 @@ def _rename_atoms_according_to_charmm(psf_file, pdb_file):
             i += 1
         new_pdb.append(line)
 
-    with open(pdb_file, 'w') as f:
+    # for i, (line1, line2) in enumerate(zip(lines, new_pdb)):
+    #     print('line1: ', line1)
+    #     print('line2: ', line2)
+    #     if i == 10:
+    #         break
+
+    if saveloc is None:
+        saveloc = pdb_file
+    with open(saveloc, 'w') as f:
         for line in new_pdb:
             f.write(line + '\n')
 
@@ -1001,6 +1061,28 @@ def _fix_parmed_psf(psf_file):
             else:
                 f.write(line + '\n')
 
+
+class RAMFile(StringIO):
+    def lower(self):
+        return 'tmp_stringio.pdb'
+
+    def close(self):
+        pass
+
+
+def test_mdtraj_stringio(frame, traj_file, top_file, frame_no, testing=False,
+                           from_tmp=False, yaml_file='', fix_isopeptides=True,
+                           check_fix_isopeptides=False, isopeptide_bonds=None, **kwargs):
+    """Function to test implementation of stringIO buffers as mdtraj save locations."""
+    series, basename, pdb_file = _start_series_with_info(frame, traj_file, top_file, frame_no)
+
+    file = RAMFile()
+    frame.save_pdb(file)
+    file.seek(0)
+    print('\n'.join(file.read().splitlines()[:5]))
+
+
+
 def get_series_from_mdtraj(frame, traj_file, top_file, frame_no, testing=False,
                            from_tmp=False, yaml_file='', fix_isopeptides=True,
                            check_fix_isopeptides=False, isopeptide_bonds=None, **kwargs):
@@ -1078,6 +1160,7 @@ def get_series_from_mdtraj(frame, traj_file, top_file, frame_no, testing=False,
     """
     # pre-formatted series
     series, basename, pdb_file = _start_series_with_info(frame, traj_file, top_file, frame_no)
+    _, ubq_site = get_ubq_site_and_basename(traj_file)
 
     # how many residues.
     should_be_residue_number = frame.n_residues
@@ -1085,21 +1168,19 @@ def get_series_from_mdtraj(frame, traj_file, top_file, frame_no, testing=False,
     if fix_isopeptides:
         if isopeptide_bonds is None:
             raise Exception("Con only fix psf file when provided a list of str as argument `isopeptide_bonds`.")
-        psf_file = pdb_file.replace('.pdb', '.psf')
+        psf_file = get_local_or_proj_file(f'data/{ubq_site}_psf_for_xplor_with_added_bond.psf')
+        pdb_stringio = RAMFile()
+        frame.save_pdb(pdb_stringio)
+        pdb_stringio.seek(0)
+        _rename_atoms_according_to_charmm(psf_file, pdb_stringio, saveloc=pdb_file)
+        pdb_stringio.seek(0)
         try:
-            frame.save_pdb(pdb_file)
-            out, err, return_code = call_pdb2psf(os.path.split(pdb_file)[1], os.getcwd(), os.getcwd())
-            if not os.path.isfile(psf_file):
-                print(out)
-                print(err)
-            _add_bond_to_psf(psf_file, isopeptide_bonds)
-            _rename_atoms_according_to_charmm(psf_file, pdb_file)
+            pdb_stringio.write(pdb_file)
             out = call_xplor_with_yaml(pdb_file, psf_file=psf_file, from_tmp=from_tmp, testing=testing,
                                        yaml_file=yaml_file, fix_isopeptides=True, **kwargs)
             out = ast.literal_eval(out)
         finally:
             if os.path.isfile(pdb_file): os.remove(pdb_file)
-            if os.path.isfile(psf_file): os.remove(psf_file)
 
         values1 = np.array([i[2] for i in out if i[0] == 'rrp600' and int(i[1]) <= 143])
 

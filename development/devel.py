@@ -84,7 +84,7 @@ psf_file = '/home/kevin/git/xplor_functions/xplor/scripts/tmp_traj_nojump_frame.
 test = xplor.functions.call_xplor_with_yaml(pdb_file, psf_file)
 
 # %% Prepare the psf files
-xplor.functions.create_psf_files(['k6', 'k11', 'k33'])
+# xplor.functions.create_psf_files(['k6', 'k11', 'k33'])
 
 # %% make the tbl files
 # xplor.functions.parse_input_files.make_15_N_table('data/spre_and_relaxation_data_k6_k29/relaxation_file_ub2_k6.txt',
@@ -94,6 +94,13 @@ xplor.functions.create_psf_files(['k6', 'k11', 'k33'])
 
 # %% Write arparse lines
 # xplor.argparse.write_argparse_lines_from_yaml_or_dict(print_argparse=True)
+
+# %% Develop a stringIO compatibility with mdtraj
+from xplor.functions.functions import test_mdtraj_stringio
+traj_file = xplor.misc.get_local_or_proj_file('data/2017_06_28_GfM_SMmin_rnd_k6_0_start.pdb')
+traj = md.load(traj_file)
+isopeptide_bonds_for_k6 = ['GLY 76 C', 'LYS 82 NZ']
+series = test_mdtraj_stringio(traj, traj_file, traj_file, 0, isopeptide_bonds=isopeptide_bonds_for_k6)
 
 # %% develop a get_series function
 # xplor.functions.call_xplor_with_yaml('data/2017_06_28_GfM_SMmin_rnd_k6_0_start.pdb', from_tmp=True)
