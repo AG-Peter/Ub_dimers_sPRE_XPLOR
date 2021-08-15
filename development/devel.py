@@ -117,7 +117,7 @@ series = xplor.functions.get_series_from_mdtraj(traj, traj_file, traj_file, 0, f
 # %% Run on everything
 _ = xplor.functions.parallel_xplor(['k6', 'k11', 'k33'], from_tmp=True, max_len=-1, write_csv=False,
                                   df_outdir='/home/kevin/projects/tobias_schneider/values_from_every_frame/from_package_with_conect/',
-                                  suffix='_df.csv')
+                                  suffix='_df.csv', parallel=False)
 
 # %%
 print(os.listdir())

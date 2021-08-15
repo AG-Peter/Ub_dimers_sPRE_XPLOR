@@ -444,7 +444,7 @@ def call_xplor_with_yaml(pdb_file, psf_file=None, yaml_file='', from_tmp=False,
 
 def parallel_xplor(ubq_sites, simdir='/home/andrejb/Research/SIMS/2017_*', n_threads='max-2',
                    df_outdir='/home/kevin/projects/tobias_schneider/values_from_every_frame/from_package/',
-                   suffix='_df_no_conect.csv', write_csv=True, fix_isopeptides=True, specific_index=None,
+                   suffix='_df_no_conect.csv', write_csv=True, fix_isopeptides=True, specific_index=None, parallel=False,
                    subsample=5, yaml_file='', testing=False, from_tmp=False, max_len=-1, break_early=False, **kwargs):
     """Runs xplor on many simulations in parallel.
 
@@ -488,6 +488,7 @@ def parallel_xplor(ubq_sites, simdir='/home/andrejb/Research/SIMS/2017_*', n_thr
             Defaults to False.
         specific_index (Union[int, None], optional): If given, only that Index will
             be used in the parallel loop. For Debugging. Defaults to None.
+        parallel (bool): Whether to do the calculations in parallel. Defaults to False.
         break_early (bool, optional): Whether to break the for loop early, stopping the
             calculation after one loop. Defaults to False.
         fix_isopeptides (bool, optional): Whether to fix isopeptide bonds using the
@@ -562,32 +563,49 @@ def parallel_xplor(ubq_sites, simdir='/home/andrejb/Research/SIMS/2017_*', n_thr
                         if a.name == 'HQ': a.name = 'HZ1'
 
             # parallel call
-            if specific_index is None:
-                out = Parallel(n_jobs=n_threads, prefer='threads')(delayed(get_series_from_mdtraj)(frame,
-                                                                                                   traj_file,
-                                                                                                   top_file,
-                                                                                                   frame_no,
-                                                                                                   testing=testing,
-                                                                                                   from_tmp=from_tmp,
-                                                                                                   yaml_file=yaml_file,
-                                                                                                   fix_isopeptides=fix_isopeptides,
-                                                                                                   isopeptide_bonds=isopeptide_bonds,
-                                                                                                   **kwargs) for
-                                                                   frame, frame_no in zip(traj[:max_len:subsample],
-                                                                                          np.arange(traj.n_frames)[
-                                                                                          :max_len:subsample]))
+            if parallel:
+                if specific_index is None:
+                    out = Parallel(n_jobs=n_threads, prefer='threads')(delayed(get_series_from_mdtraj)(frame,
+                                                                                                       traj_file,
+                                                                                                       top_file,
+                                                                                                       frame_no,
+                                                                                                       testing=testing,
+                                                                                                       from_tmp=from_tmp,
+                                                                                                       yaml_file=yaml_file,
+                                                                                                       fix_isopeptides=fix_isopeptides,
+                                                                                                       isopeptide_bonds=isopeptide_bonds,
+                                                                                                       **kwargs) for
+                                                                       frame, frame_no in zip(traj[:max_len:subsample],
+                                                                                              np.arange(traj.n_frames)[
+                                                                                              :max_len:subsample]))
+                else:
+                    out = Parallel(n_jobs=n_threads, prefer='threads')(delayed(get_series_from_mdtraj)(frame,
+                                                                                                       traj_file,
+                                                                                                       top_file,
+                                                                                                       frame_no,
+                                                                                                       testing=testing,
+                                                                                                       from_tmp=from_tmp,
+                                                                                                       yaml_file=yaml_file,
+                                                                                                       fix_isopeptides=fix_isopeptides,
+                                                                                                       isopeptide_bonds=isopeptide_bonds,
+                                                                                                       **kwargs) for
+                                                                       frame, frame_no in zip(traj[specific_index], [specific_index]))
             else:
-                out = Parallel(n_jobs=n_threads, prefer='threads')(delayed(get_series_from_mdtraj)(frame,
-                                                                                                   traj_file,
-                                                                                                   top_file,
-                                                                                                   frame_no,
-                                                                                                   testing=testing,
-                                                                                                   from_tmp=from_tmp,
-                                                                                                   yaml_file=yaml_file,
-                                                                                                   fix_isopeptides=fix_isopeptides,
-                                                                                                   isopeptide_bonds=isopeptide_bonds,
-                                                                                                   **kwargs) for
-                                                                   frame, frame_no in zip(traj[specific_index], [specific_index]))
+                if specific_index is None:
+                    out = []
+                    for  frame, frame_no in zip(traj[:max_len:subsample], np.arange(traj.n_frames)[:max_len:subsample]):
+                        out.append(get_series_from_mdtraj(frame, traj_file, top_file, frame_no,
+                                                          testing=testing, from_tmp=from_tmp, yaml_file=yaml_file,
+                                                          fix_isopeptides=fix_isopeptides, isopeptide_bonds=isopeptide_bonds,
+                                                          **kwargs))
+                else:
+                    out = []
+                    for frame, frame_no in zip(traj[specific_index], [specific_index]):
+                        out.append(get_series_from_mdtraj(frame, traj_file, top_file, frame_no,
+                                                          testing=testing, from_tmp=from_tmp, yaml_file=yaml_file,
+                                                          fix_isopeptides=fix_isopeptides,
+                                                          isopeptide_bonds=isopeptide_bonds,
+                                                          **kwargs))
 
             # continue working with output
             now = datetime_windows_and_linux_compatible()
