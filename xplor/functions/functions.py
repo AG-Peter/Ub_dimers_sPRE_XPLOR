@@ -233,6 +233,19 @@ def is_aa_sim(file):
         raise Exception("Can not decide whether sim is AA or CG.")
 
 
+def get_ubq_site(traj_file):
+    """Returns ubq_site and basename for a traj_file."""
+    substrings = traj_file.split('_')
+    try:
+        ubq_site = substrings[[substr.startswith('k') for substr in substrings].index(True)]
+    except ValueError:
+        if 'm1' in traj_file:
+            return 'm1'
+        else:
+            raise
+    return ubq_site
+
+
 def get_ubq_site_and_basename(traj_file):
     """Returns ubq_site and basename for a traj_file."""
     basename = traj_file.split('/')[-2]
@@ -300,6 +313,10 @@ def normalize_sPRE(df_comp, df_obs, kind='var', norm_res_count=10):
         if kind == 'var':
             v_calc = sPRE_comp.var(axis='rows').values
             v_calc_prox, v_calc_dist = np.split(v_calc, 2)
+            print(v_calc_prox.shape, v_calc_dist.shape)
+            print(v_calc)
+            print(type(v_calc_prox))
+            raise Exception("STOP")
             threshold_prox = np.partition(v_calc_prox[np.nonzero(v_calc_prox)], norm_res_count)[norm_res_count - 1]
             threshold_dist = np.partition(v_calc_dist[np.nonzero(v_calc_dist)], norm_res_count)[norm_res_count - 1]
             print(f"Proximal threshold = {threshold_prox}, Distal threshold = {threshold_dist}")

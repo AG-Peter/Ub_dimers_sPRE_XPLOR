@@ -49,3 +49,8 @@ Exception: too many unreadable ATOM entries: 512
 PyInterp::command: error executing: >xplor.execfile('/home/kevin/git/xplor_functions/xplor/scripts/xplor_single_struct.py')<
 , and the return code: 1. Isaved the files that causes this error here:pdb: /home/kevin/git/xplor_functions/xplor/scripts/tmp_traj_nojump_frame.pdb,psf: /home/kevin/git/xplor_functions/xplor/scripts/tmp_traj_nojump_frame.psf
 nohup: ignoring input
+nohup: ignoring input
+nohup: ignoring input
+nohup: ignoring input
+import: error while loading shared libraries: libwebp.so.5: cannot open shared object file: No such file or directory
+./nohup_xplor.py: 3: Syntax error: word unexpected (expecting ")")
