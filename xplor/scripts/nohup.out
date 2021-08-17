@@ -54,3 +54,84 @@ nohup: ignoring input
 nohup: ignoring input
 import: error while loading shared libraries: libwebp.so.5: cannot open shared object file: No such file or directory
 ./nohup_xplor.py: 3: Syntax error: word unexpected (expecting ")")
+Redefining os.path.isfile to work with tmp_stringio.pdb
+Redefining open() to work with tmp_stringio.pdb
+Using procedure from `check_conect` to fix isopeptide bonds.
+traj 2017_04_27_G_2ub_k6_01_01 already finished
+traj 2017_04_27_G_2ub_k6_01_02 NOT FINISHED
+traj 2017_04_27_G_2ub_k6_01_03 NOT FINISHED
+traj 2017_04_27_G_2ub_k6_01_04 NOT FINISHED
+traj 2017_04_27_G_2ub_k6_01_05 NOT FINISHED
+traj 2017_04_27_G_2ub_k6_01_06 NOT FINISHED
+traj 2017_04_27_G_2ub_k6_02_01 NOT FINISHED
+traj 2017_04_27_G_2ub_k6_02_02 NOT FINISHED
+traj 2017_04_27_G_2ub_k6_02_03 NOT FINISHED
+traj 2017_04_27_G_2ub_k6_02_04 NOT FINISHED
+traj 2017_04_27_G_2ub_k6_02_05 NOT FINISHED
+traj 2017_04_27_G_2ub_k6_02_06 NOT FINISHED
+Traceback (most recent call last):
+  File "/home/kevin/.conda/envs/py39_tf2/lib/python3.9/urllib/request.py", line 1346, in do_open
+    h.request(req.get_method(), req.selector, req.data, headers,
+  File "/home/kevin/.conda/envs/py39_tf2/lib/python3.9/http/client.py", line 1257, in request
+    self._send_request(method, url, body, headers, encode_chunked)
+  File "/home/kevin/.conda/envs/py39_tf2/lib/python3.9/http/client.py", line 1303, in _send_request
+    self.endheaders(body, encode_chunked=encode_chunked)
+  File "/home/kevin/.conda/envs/py39_tf2/lib/python3.9/http/client.py", line 1252, in endheaders
+    self._send_output(message_body, encode_chunked=encode_chunked)
+  File "/home/kevin/.conda/envs/py39_tf2/lib/python3.9/http/client.py", line 1012, in _send_output
+    self.send(msg)
+  File "/home/kevin/.conda/envs/py39_tf2/lib/python3.9/http/client.py", line 952, in send
+    self.connect()
+  File "/home/kevin/.conda/envs/py39_tf2/lib/python3.9/http/client.py", line 1419, in connect
+    super().connect()
+  File "/home/kevin/.conda/envs/py39_tf2/lib/python3.9/http/client.py", line 923, in connect
+    self.sock = self._create_connection(
+  File "/home/kevin/.conda/envs/py39_tf2/lib/python3.9/socket.py", line 843, in create_connection
+    raise err
+  File "/home/kevin/.conda/envs/py39_tf2/lib/python3.9/socket.py", line 831, in create_connection
+    sock.connect(sa)
+TimeoutError: [Errno 110] Connection timed out
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/kevin/git/xplor_functions/xplor/scripts/./nohup_xplor.py", line 5, in <module>
+  File "/home/kevin/git/xplor_functions/xplor/functions/functions.py", line 566, in parallel_xplor
+    if r.name == 'GLQ':
+  File "/home/kevin/.conda/envs/py39_tf2/lib/python3.9/site-packages/joblib/parallel.py", line 1054, in __call__
+    self.retrieve()
+  File "/home/kevin/.conda/envs/py39_tf2/lib/python3.9/site-packages/joblib/parallel.py", line 933, in retrieve
+    self._output.extend(job.get(timeout=self.timeout))
+  File "/home/kevin/.conda/envs/py39_tf2/lib/python3.9/multiprocessing/pool.py", line 771, in get
+    raise self._value
+  File "/home/kevin/.conda/envs/py39_tf2/lib/python3.9/multiprocessing/pool.py", line 125, in worker
+    result = (True, func(*args, **kwds))
+  File "/home/kevin/.conda/envs/py39_tf2/lib/python3.9/site-packages/joblib/_parallel_backends.py", line 595, in __call__
+    return self.func(*args, **kwargs)
+  File "/home/kevin/.conda/envs/py39_tf2/lib/python3.9/site-packages/joblib/parallel.py", line 262, in __call__
+    return [func(*args, **kwargs)
+  File "/home/kevin/.conda/envs/py39_tf2/lib/python3.9/site-packages/joblib/parallel.py", line 262, in <listcomp>
+    return [func(*args, **kwargs)
+  File "/home/kevin/git/xplor_functions/xplor/functions/functions.py", line 1326, in get_series_from_mdtraj
+    are set.
+  File "/home/kevin/git/xplor_functions/xplor/functions/functions.py", line 623, in _start_series_with_info
+    fix_isopeptides=fix_isopeptides,
+  File "/home/kevin/git/xplor_functions/xplor/proteins/proteins.py", line 25, in get_column_names_from_pdb
+    _ = md.load_pdb(f'https://files.rcsb.org/view/{pdbid}.pdb')
+  File "/home/kevin/.conda/envs/py39_tf2/lib/python3.9/site-packages/mdtraj/formats/pdb/pdbfile.py", line 153, in load_pdb
+    with PDBTrajectoryFile(filename, standard_names=standard_names) as f:
+  File "/home/kevin/.conda/envs/py39_tf2/lib/python3.9/site-packages/mdtraj/formats/pdb/pdbfile.py", line 257, in __init__
+    self._file = urlopen(filename)
+  File "/home/kevin/.conda/envs/py39_tf2/lib/python3.9/urllib/request.py", line 214, in urlopen
+    return opener.open(url, data, timeout)
+  File "/home/kevin/.conda/envs/py39_tf2/lib/python3.9/urllib/request.py", line 517, in open
+    response = self._open(req, data)
+  File "/home/kevin/.conda/envs/py39_tf2/lib/python3.9/urllib/request.py", line 534, in _open
+    result = self._call_chain(self.handle_open, protocol, protocol +
+  File "/home/kevin/.conda/envs/py39_tf2/lib/python3.9/urllib/request.py", line 494, in _call_chain
+    result = func(*args)
+  File "/home/kevin/.conda/envs/py39_tf2/lib/python3.9/urllib/request.py", line 1389, in https_open
+    return self.do_open(http.client.HTTPSConnection, req,
+  File "/home/kevin/.conda/envs/py39_tf2/lib/python3.9/urllib/request.py", line 1349, in do_open
+    raise URLError(err)
+urllib.error.URLError: <urlopen error [Errno 110] Connection timed out>

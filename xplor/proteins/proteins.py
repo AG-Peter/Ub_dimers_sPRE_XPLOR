@@ -22,7 +22,10 @@ def get_column_names_from_pdb(pdbid='1UBQ', return_residues=False, return_AAs=Fa
         list: A list with the column names
 
     """
-    _ = md.load_pdb(f'https://files.rcsb.org/view/{pdbid}.pdb')
+    if pdbid != '1UBQ':
+        _ = md.load_pdb(f'https://files.rcsb.org/view/{pdbid}.pdb')
+    else:
+        _ = md.load_pdb('/home/kevin/1UBQ.pdb')
     fasta = [i for i in _.top.to_fasta()[0]]
     AAs = np.genfromtxt(AMINO_ACIDS_3_LETTER_1, delimiter=' - ', dtype=str)
     AAs = pd.DataFrame(AAs, columns=['name', '3letter', '1letter'])
