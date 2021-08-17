@@ -43,6 +43,7 @@ check_pdb_and_psf_integrity(pdb_file, psf_file)
 # In the pdb: HHB1
 # Why is that?
 # Origin: 2017_04_27_G_2ub_k6_01_02, frame 475
+# Fixed with new _rename_atoms_according_to_charmm function
 from xplor.functions.functions import Capturing
 from xplor.functions.custom_gromacstopfile import CustomGromacsTopFile
 
@@ -79,13 +80,13 @@ for r in frame.top.residues:
 series = xplor.functions.get_series_from_mdtraj(frame, xtc, pdb, 0, from_tmp=True,
                                                 check_fix_isopeptides=True, isopeptide_bonds=isopeptide_bonds)
 
+# %%
+pd.options.display.min_rows = 40
 
-
-# %% Maybe if I use the problem making files:
-pdb_file = '/home/kevin/git/xplor_functions/xplor/scripts/tmp_traj_nojump_frame.pdb'
-psf_file = '/home/kevin/git/xplor_functions/xplor/scripts/tmp_traj_nojump_frame.psf'
-
-test = xplor.functions.call_xplor_with_yaml(pdb_file, psf_file)
+# %% Why are the series with isopeptides empty?
+_ = xplor.functions.parallel_xplor(['k6', 'k29', 'k33'], from_tmp=True, max_len=20, write_csv=False,
+                                  df_outdir='/home/kevin/projects/tobias_schneider/values_from_every_frame/from_package_with_conect/',
+                                  suffix='_df.csv', parallel=False, break_after=3)
 
 # %% Prepare the psf files
 # xplor.functions.create_psf_files(['k6', 'k11', 'k33'])
@@ -115,9 +116,14 @@ series = xplor.functions.get_series_from_mdtraj(traj, traj_file, traj_file, 0, f
                                                 check_fix_isopeptides=True, isopeptide_bonds=isopeptide_bonds_for_k6)
 
 # %% Run on everything
-_ = xplor.functions.parallel_xplor(['k6', 'k11', 'k33'], from_tmp=True, max_len=-1, write_csv=False,
+_ = xplor.functions.parallel_xplor(['k6', 'k29', 'k33'], from_tmp=True, max_len=20, write_csv=False,
                                   df_outdir='/home/kevin/projects/tobias_schneider/values_from_every_frame/from_package_with_conect/',
-                                  suffix='_df.csv', parallel=False)
+                                  suffix='_df.csv', parallel=False, break_after=3)
+
+# %%
+df = _.copy()
+cols = [c for c in df.columns if 'distal' in c or 'proximal' in c]
+df[cols]
 
 # %%
 print(os.listdir())

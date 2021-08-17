@@ -461,8 +461,8 @@ def call_xplor_with_yaml(pdb_file, psf_file=None, yaml_file='', from_tmp=False,
 
 def parallel_xplor(ubq_sites, simdir='/home/andrejb/Research/SIMS/2017_*', n_threads='max-2',
                    df_outdir='/home/kevin/projects/tobias_schneider/values_from_every_frame/from_package/',
-                   suffix='_df_no_conect.csv', write_csv=True, fix_isopeptides=True, specific_index=None, parallel=False,
-                   subsample=5, yaml_file='', testing=False, from_tmp=False, max_len=-1, break_early=False, **kwargs):
+                   suffix='_df_no_conect.csv', write_csv=True, fix_isopeptides=25, specific_index=None, parallel=False,
+                   subsample=5, yaml_file='', testing=False, from_tmp=False, max_len=-1, break_after=False, **kwargs):
     """Runs xplor on many simulations in parallel.
 
     This function is somewhat specific and there are some hardcoded directories
@@ -506,10 +506,13 @@ def parallel_xplor(ubq_sites, simdir='/home/andrejb/Research/SIMS/2017_*', n_thr
         specific_index (Union[int, None], optional): If given, only that Index will
             be used in the parallel loop. For Debugging. Defaults to None.
         parallel (bool): Whether to do the calculations in parallel. Defaults to False.
-        break_early (bool, optional): Whether to break the for loop early, stopping the
-            calculation after one loop. Defaults to False.
-        fix_isopeptides (bool, optional): Whether to fix isopeptide bonds using the
-            technique developed in `check_conect`. Defaults to True.
+        break_after (Union[bool, int], optional): Whether to break the for loop early, stopping the
+            calculation after the specified number of loops. Defaults to False.
+        fix_isopeptides (Union[bool, int], optional): Whether to fix isopeptide bonds using the
+            technique developed in `check_conect`. If set to True all calculations use this
+            techniyue. Can also take an int, that is larger than `subsample`, in that
+            case, only every `fix_isopeptided` frame will use this technique, the other
+            frames will use the old, faster protocol. Defaults to 25.
         **kwargs: Arbitrary keyword arguments. Keywords that are not flags
             of the xplor/scripts/xplor_single_struct_script.py will be discarded.
 
@@ -527,7 +530,7 @@ def parallel_xplor(ubq_sites, simdir='/home/andrejb/Research/SIMS/2017_*', n_thr
 
     # get list of already existing dfs
     files = glob.glob(f'{df_outdir}*{suffix}')
-    if files:
+    if files and write_csv:
         highest_datetime_csv = sorted(files, key=get_iso_time)[-1]
         df = pd.read_csv(highest_datetime_csv, index_col=0)
     else:
@@ -579,6 +582,20 @@ def parallel_xplor(ubq_sites, simdir='/home/andrejb/Research/SIMS/2017_*', n_thr
                             isopeptide_bonds.append(f"{a.residue.name} {a.residue.resSeq} {a.name}")
                         if a.name == 'HQ': a.name = 'HZ1'
 
+            # create an array of Trues for fix_isopeptides
+            if fix_isopeptides is True and specific_index is None:
+                fix_isopeptides = np.full(traj.n_frames, True)[:max_len:subsample]
+            elif fix_isopeptides < subsample:
+                raise Exception("`fix_isopeptides` is smaller than `subsample`. Please fix.")
+            elif specific_index is not None:
+                pass
+            else:
+                if fix_isopeptides % subsample != 0:
+                    raise Exception("`fix_isopeptides` % `subsample` should be 0. Please change them to be divisible.")
+                _ = np.full(traj.n_frames, False)[:max_len:subsample]
+                _[::int(fix_isopeptides/subsample)] = True
+                fix_isopeptides = _
+
             # parallel call
             if parallel:
                 if specific_index is None:
@@ -589,12 +606,12 @@ def parallel_xplor(ubq_sites, simdir='/home/andrejb/Research/SIMS/2017_*', n_thr
                                                                                                        testing=testing,
                                                                                                        from_tmp=from_tmp,
                                                                                                        yaml_file=yaml_file,
-                                                                                                       fix_isopeptides=fix_isopeptides,
+                                                                                                       fix_isopeptides=fix,
                                                                                                        isopeptide_bonds=isopeptide_bonds,
                                                                                                        **kwargs) for
-                                                                       frame, frame_no in zip(traj[:max_len:subsample],
-                                                                                              np.arange(traj.n_frames)[
-                                                                                              :max_len:subsample]))
+                                                                       frame, frame_no, fix in zip(traj[:max_len:subsample],
+                                                                                              np.arange(traj.n_frames)[:max_len:subsample],
+                                                                                              fix_isopeptides))
                 else:
                     out = Parallel(n_jobs=n_threads, prefer='threads')(delayed(get_series_from_mdtraj)(frame,
                                                                                                        traj_file,
@@ -610,10 +627,10 @@ def parallel_xplor(ubq_sites, simdir='/home/andrejb/Research/SIMS/2017_*', n_thr
             else:
                 if specific_index is None:
                     out = []
-                    for  frame, frame_no in zip(traj[:max_len:subsample], np.arange(traj.n_frames)[:max_len:subsample]):
+                    for  frame, frame_no, fix in zip(traj[:max_len:subsample], np.arange(traj.n_frames)[:max_len:subsample], fix_isopeptides):
                         out.append(get_series_from_mdtraj(frame, traj_file, top_file, frame_no,
                                                           testing=testing, from_tmp=from_tmp, yaml_file=yaml_file,
-                                                          fix_isopeptides=fix_isopeptides, isopeptide_bonds=isopeptide_bonds,
+                                                          fix_isopeptides=fix, isopeptide_bonds=isopeptide_bonds,
                                                           **kwargs))
                 else:
                     out = []
@@ -630,9 +647,11 @@ def parallel_xplor(ubq_sites, simdir='/home/andrejb/Research/SIMS/2017_*', n_thr
             df = df.append(out, ignore_index=True)
             if write_csv:
                 df.to_csv(df_name)
-            if testing or break_early:
+            if testing:
                 break
-        if break_early:
+            if j >= break_after:
+                break
+        if break_after:
             break
     return df
 
@@ -1404,28 +1423,36 @@ def get_series_from_mdtraj(frame, traj_file, top_file, frame_no, testing=False,
             print(psol)
             raise Exception(f"This psol value should not be 0. Traj is {traj_file}, frame is {frame_no}")
 
-        for o in out:
-            if int(o[1]) <= (should_be_residue_number / 2) - 1:
-                resSeq = int(o[1])
-                position = 'proximal'
-            else:
-                resSeq = int(int(o[1]) - (should_be_residue_number / 2))
-                position = 'distal'
-            try:
-                resname = frame.top.residue(int(o[1]) - 1).name
-            except TypeError:
-                print(o)
-                raise
-            if o[0] == 'rrp600':
-                series[f'{position} {resname}{resSeq} 15N_relax_600'] = o[2]
-            elif o[0] == 'rrp800':
-                series[f'{position} {resname}{resSeq} 15N_relax_800'] = o[2]
-            elif o[0] == 'psol':
-                series[f'{position} {resname}{resSeq} sPRE'] = o[2]
+    for o in out:
+        if int(o[1]) <= (should_be_residue_number / 2) - 1:
+            resSeq = int(o[1])
+            position = 'proximal'
+        else:
+            resSeq = int(int(o[1]) - (should_be_residue_number / 2))
+            position = 'distal'
+        try:
+            resname = frame.top.residue(int(o[1]) - 1).name
+        except TypeError:
+            print(o)
+            raise
+        if o[0] == 'rrp600':
+            series[f'{position} {resname}{resSeq} 15N_relax_600'] = o[2]
+        elif o[0] == 'rrp800':
+            series[f'{position} {resname}{resSeq} 15N_relax_800'] = o[2]
+        elif o[0] == 'psol':
+            series[f'{position} {resname}{resSeq} sPRE'] = o[2]
 
-        basename, ubq_site = get_ubq_site_and_basename(traj_file)
-        series['basename'] = basename
-        series['ubq_site'] = ubq_site
+    basename, ubq_site = get_ubq_site_and_basename(traj_file)
+    series['basename'] = basename
+    series['ubq_site'] = ubq_site
+    series['isopeptide'] = fix_isopeptides
+
+    sPRE_ind = [c for c in series.index if 'sPRE' in c]
+    rrp600_ind = [c for c in series.index if '600' in c]
+    rrp800_ind = [c for c in series.index if '800' in c]
+
+    if series[sPRE_ind + rrp600_ind + rrp800_ind].isnull().all():
+        raise Exception("STOP")
 
     if check_fix_isopeptides:
         values2 = np.array([i[2] for i in out if i[0] == 'rrp600' and int(i[1]) <= 143])
