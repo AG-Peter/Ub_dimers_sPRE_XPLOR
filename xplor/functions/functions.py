@@ -8,7 +8,7 @@ import numpy as np
 import parmed as pmd
 from parmed.charmm import CharmmPsfFile
 import pandas as pd
-import os, sys, glob, multiprocessing, copy, ast, subprocess, yaml, shutil
+import os, sys, glob, multiprocessing, copy, ast, subprocess, yaml, shutil, scipy
 from ..proteins.proteins import get_column_names_from_pdb
 from io import StringIO
 from joblib import Parallel, delayed
@@ -27,7 +27,7 @@ import builtins
 
 
 __all__ = ['parallel_xplor', 'get_series_from_mdtraj', 'call_xplor_with_yaml',
-           'normalize_sPRE', 'test_conect', 'create_psf_files']
+           'normalize_sPRE', 'test_conect', 'create_psf_files', 'make_linear_combination_from_clusters']
 
 MASSES = {'1.00800': 'H', '14.0070': 'N', '12.0110': 'C', '15.9990': 'O', '32.0600': 'S'}
 # mapping is pdb: psf
@@ -313,10 +313,6 @@ def normalize_sPRE(df_comp, df_obs, kind='var', norm_res_count=10):
         if kind == 'var':
             v_calc = sPRE_comp.var(axis='rows').values
             v_calc_prox, v_calc_dist = np.split(v_calc, 2)
-            print(v_calc_prox.shape, v_calc_dist.shape)
-            print(v_calc)
-            print(type(v_calc_prox))
-            raise Exception("STOP")
             threshold_prox = np.partition(v_calc_prox[np.nonzero(v_calc_prox)], norm_res_count)[norm_res_count - 1]
             threshold_dist = np.partition(v_calc_dist[np.nonzero(v_calc_dist)], norm_res_count)[norm_res_count - 1]
             print(f"Proximal threshold = {threshold_prox}, Distal threshold = {threshold_dist}")
@@ -1470,3 +1466,53 @@ def get_series_from_mdtraj(frame, traj_file, top_file, frame_no, testing=False,
             raise Exception("Values are identical for with and without isopeptide.")
             
     return series
+
+
+def make_linear_combination_from_clusters(trajs, df, df_obs, fast_exchangers, ubq_site):
+    """Makes a linear combination from sPRE values and clustered trajs.
+
+    Args:
+        trajs (encodermap.Info_all): The trajs with cluster membership inside them.
+        df (pandas.DataFrame): The XPLOR data.
+        df_obs (pandas.DataFrame): The observerd NMR values.
+        fast_exchangers (pandas.DataFrame): Boolean dataframe with residues that exchnage rapidly.
+        ubq_site (str): The ubiquitination site currenlty worked on.
+
+    Returns:
+        np.ndarray: The linear combination to build df_obs.
+
+    """
+    df = df.copy()
+    df = df.fillna(0)
+    df_obs = df_obs.copy()
+    obs = df_obs[df_obs.index.str.contains('sPRE')][ubq_site].values
+
+    df = df[df['ubq_site'] == ubq_site]
+    sPRE_ind = [i for i in df.columns if 'sPRE' in i and 'norm' in i]
+
+    # put cluster membership into df
+    cluster_membership_sPRE = []
+    for i, traj in enumerate(trajs):
+        frames = df[df['traj_file'] == traj.traj_file]['frame'].values
+        cluster_membership_sPRE.append(traj.cluster_membership[frames])
+    cluster_membership_sPRE = np.hstack(cluster_membership_sPRE)
+    df['cluster_membership'] = cluster_membership_sPRE
+
+    # calculcate the per-cluster per-residue means
+    cluster_means = []
+    for cluster_num in range(int(df['cluster_membership'].max())):
+        mean = np.mean(df[sPRE_ind][df['cluster_membership'] == cluster_num], axis=0)
+        cluster_means.append(mean)
+    cluster_means = np.vstack(cluster_means)
+    print(np.any(np.isnan(cluster_means)))
+
+    # exclude fast exchangers
+    fast_exchange = fast_exchangers[ubq_site].values
+
+    # make linear combination
+    x = scipy.optimize.lsq_linear(cluster_means.T[~fast_exchange], obs[~fast_exchange], bounds=(0, 1))
+    argsort = np.argsort(x.x)[::-1]
+    with np.printoptions(suppress=True):
+        print(argsort)
+        print(x.x[argsort] * 100)
+    return np.round(x.x * 100, 2)
