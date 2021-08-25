@@ -12,7 +12,7 @@ import parmed as pmd
 
 # %% Streamline observables and computation
 from xplor.functions.functions import get_ubq_site
-df_comp = pd.read_csv('/home/kevin/projects/tobias_schneider/values_from_every_frame/from_package_with_conect/2021-08-16T12:45:19+02:00_df.csv',
+df_comp = pd.read_csv('/home/kevin/projects/tobias_schneider/values_from_every_frame/2021-08-25T13:01:39+02:00_df.csv',
                       index_col=0)
 if not 'ubq_site' in df_comp.keys():
     df_comp['ubq_site'] = df_comp['traj_file'].map(get_ubq_site)
@@ -20,6 +20,10 @@ if not 'ubq_site' in df_comp.keys():
 df_obs = xplor.functions.parse_input_files.get_observed_df(['k6', 'k29'])
 fast_exchangers = xplor.functions.parse_input_files.get_fast_exchangers(['k6', 'k29'])
 in_secondary = xplor.functions.parse_input_files.get_in_secondary(['k6', 'k29'])
+
+# %%
+
+df_comp
 
 # %% View dataframe
 sPRE_ind = df_comp.columns[['sPRE' in c for c in df_comp.columns]]

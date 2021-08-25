@@ -645,8 +645,9 @@ def parallel_xplor(ubq_sites, simdir='/home/andrejb/Research/SIMS/2017_*', n_thr
                 df.to_csv(df_name)
             if testing:
                 break
-            if j >= break_after:
-                break
+            if break_after:
+                if j >= break_after:
+                    break
         if break_after:
             break
     return df
