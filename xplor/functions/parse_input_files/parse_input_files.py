@@ -246,8 +246,8 @@ def make_sPRE_table(in_files, out_file=None, return_df=True, split_prox_dist=Fal
         return df
 
 
-def get_observed_df(ubq_sites, sPRE='data/spre_and_relaxation_data_k6_k29/di_ub2_ubq_site_*_sPRE.txt',
-                    relax='data/spre_and_relaxation_data_k6_k29/relaxation_file_ub2_ubq_site.txt'):
+def get_observed_df(ubq_sites, sPRE='data/spre_and_relaxation_data_k6_k29_k33/di_ub2_ubq_site_*_sPRE.txt',
+                    relax='data/spre_and_relaxation_data_k6_k29_k33/relaxation_file_ub2_ubq_site.txt'):
     """Returns a nicely formatted dataframe from the observable values in data.
 
     The formatting of this dataframe matches the dataframe/series returned bey the
@@ -259,12 +259,12 @@ def get_observed_df(ubq_sites, sPRE='data/spre_and_relaxation_data_k6_k29/di_ub2
 
     Keyword Args:
         sPRE (str, optional): The formatting of the sPRE string. Defaults to
-            'data/spre_and_relaxation_data_k6_k29/di_ub2_ubq_site_*_sPRE.txt',
+            'data/spre_and_relaxation_data_k6_k29_k33/di_ub2_ubq_site_*_sPRE.txt',
             where the substring 'ubq_site' will be replaced with the strings from
             `ubq_sites`. The wildcard (*) needs to be here, because the sPRE
             values were provied in two separate files.
         relax (str, optional): The same, as `sPRE`, but wiht 15N relax data. Defaults to
-            'data/spre_and_relaxation_data_k6_k29/relaxation_file_ub2__ubq_site_.txt`.
+            'data/spre_and_relaxation_data_k6_k29_k33/relaxation_file_ub2__ubq_site_.txt`.
 
     Returns:
         pd.DataFrame: A pandas dataframe.
@@ -358,7 +358,7 @@ def get_fast_exchangers(ubq_sites):
     return fast_exchangers
 
 
-def get_in_secondary(ubq_sites, relax='data/spre_and_relaxation_data_k6_k29/relaxation_file_ub2_ubq_site.txt'):
+def get_in_secondary(ubq_sites, relax='data/spre_and_relaxation_data_k6_k29_k33/relaxation_file_ub2_ubq_site.txt'):
     """Returns a pandas dataframe depending on whether an AA is in a sec struct motif."""
 
     residues = get_column_names_from_pdb(return_residues=True)
