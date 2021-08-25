@@ -521,7 +521,7 @@ def parallel_xplor(ubq_sites, simdir='/home/andrejb/Research/SIMS/2017_*', n_thr
     elif n_threads == 'max':
         n_threads = multiprocessing.cpu_count()
 
-    if fix_isopeptides:
+    if np.any(fix_isopeptides):
         print("Using procedure from `check_conect` to fix isopeptide bonds.")
 
     # get list of already existing dfs
@@ -580,7 +580,7 @@ def parallel_xplor(ubq_sites, simdir='/home/andrejb/Research/SIMS/2017_*', n_thr
 
             # create an array of Trues for fix_isopeptides
             if fix_isopeptides is True and specific_index is None:
-                fix_isopeptides = np.full(traj.n_frames, True)[:max_len:subsample]
+                fix_isopeptides_arr = np.full(traj.n_frames, True)[:max_len:subsample]
             elif fix_isopeptides < subsample:
                 raise Exception("`fix_isopeptides` is smaller than `subsample`. Please fix.")
             elif specific_index is not None:
@@ -590,7 +590,7 @@ def parallel_xplor(ubq_sites, simdir='/home/andrejb/Research/SIMS/2017_*', n_thr
                     raise Exception("`fix_isopeptides` % `subsample` should be 0. Please change them to be divisible.")
                 _ = np.full(traj.n_frames, False)[:max_len:subsample]
                 _[::int(fix_isopeptides/subsample)] = True
-                fix_isopeptides = _
+                fix_isopeptides_arr = _
 
             # parallel call
             if parallel:
@@ -607,7 +607,7 @@ def parallel_xplor(ubq_sites, simdir='/home/andrejb/Research/SIMS/2017_*', n_thr
                                                                                                        **kwargs) for
                                                                        frame, frame_no, fix in zip(traj[:max_len:subsample],
                                                                                               np.arange(traj.n_frames)[:max_len:subsample],
-                                                                                              fix_isopeptides))
+                                                                                              fix_isopeptides_arr))
                 else:
                     out = Parallel(n_jobs=n_threads, prefer='threads')(delayed(get_series_from_mdtraj)(frame,
                                                                                                        traj_file,
@@ -623,7 +623,7 @@ def parallel_xplor(ubq_sites, simdir='/home/andrejb/Research/SIMS/2017_*', n_thr
             else:
                 if specific_index is None:
                     out = []
-                    for  frame, frame_no, fix in zip(traj[:max_len:subsample], np.arange(traj.n_frames)[:max_len:subsample], fix_isopeptides):
+                    for  frame, frame_no, fix in zip(traj[:max_len:subsample], np.arange(traj.n_frames)[:max_len:subsample], fix_isopeptides_arr):
                         out.append(get_series_from_mdtraj(frame, traj_file, top_file, frame_no,
                                                           testing=testing, from_tmp=from_tmp, yaml_file=yaml_file,
                                                           fix_isopeptides=fix, isopeptide_bonds=isopeptide_bonds,

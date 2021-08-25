@@ -57,9 +57,9 @@ for root, dirs, files in os.walk("/home/kevin/projects/tobias_schneider/"):
 
 # %%
 
-print(len(trajs))
-print(len(trajs[0]))
-print(refs)
+print(len(traj_files))
+print(len(traj_files['k6']))
+print(traj_files['k6'])
 
 
 # %% Plot encodermap
@@ -125,7 +125,7 @@ for i, ubq_site in enumerate(['k6', 'k29', 'k33']):
     else:
         print("Trajs already loaded")
 
-    parameters_file = f'runs/{ubq_site}/production_run/parameters.json'
+    parameters_file = f'runs/{ubq_site}/production_run_tf2/parameters.json'
     if not os.path.isfile(parameters_file):
         print("Not yet finished")
         continue
@@ -191,7 +191,12 @@ for i, ubq_site in enumerate(['k6', 'k29', 'k33']):
     for prob, cluster_no in zip(linear_combination, np.unique(trajs[ubq_site].cluster_membership)):
         if cluster_no == -1:
             continue
-        view, dummy_traj = gen_dummy_traj(trajs[ubq_site], cluster_no, max_frames=500, superpose=True)
-        index, mat, centroid = rmsd_centroid_of_cluster(dummy_traj)
-        centroid.save_pdb(f'{ubq_site}_cluster_{cluster_no}_linear_combination_{prob}_percent.pdb')
-        print(f"Cluster {cluster_no} contributes {prob}% to the sPRE NMR ensemble.")
+        if not os.path.isfile(f'clustering_{ubq_site}/{ubq_site}_cluster_{cluster_no}_linear_combination_{prob}_percent.pdb'):
+            view, dummy_traj = gen_dummy_traj(trajs[ubq_site], cluster_no, max_frames=500, superpose=True)
+            index, mat, centroid = rmsd_centroid_of_cluster(dummy_traj)
+            centroid.save_pdb(f'clustering_{ubq_site}/{ubq_site}_cluster_{cluster_no}_linear_combination_{prob}_percent.pdb')
+            print(f"Cluster {cluster_no} contributes {prob}% to the sPRE NMR ensemble.")
+
+# %%
+
+print(trajs['k6'].n_trajs)
