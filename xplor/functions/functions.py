@@ -1516,4 +1516,4 @@ def make_linear_combination_from_clusters(trajs, df, df_obs, fast_exchangers, ub
     with np.printoptions(suppress=True):
         print(argsort)
         print(x.x[argsort] * 100)
-    return np.round(x.x * 100, 2)
+    return x.x
