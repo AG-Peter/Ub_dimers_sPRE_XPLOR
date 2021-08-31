@@ -114,6 +114,8 @@ from encodermap.misc.clustering import gen_dummy_traj, rmsd_centroid_of_cluster
 from encodermap.plot.plotting import render_vmd
 from xplor.functions.functions import make_linear_combination_from_clusters
 
+raise Exception("There is new better code in one of the notebooks")
+
 def ckpt_step(file):
     file = os.path.basename(file).split('.')[0].split('_')[-1]
     return int(file)
