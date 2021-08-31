@@ -273,7 +273,7 @@ def get_observed_df(ubq_sites, sPRE='data/spre_and_relaxation_data_k6_k29_k33/di
     # get residues from PDB ID
     residues = get_column_names_from_pdb(return_residues=True)
 
-    df_obs = [[], []]
+    df_obs = [[] for _ in ubq_sites]
     labels = []
     for i, ubq_site in enumerate(ubq_sites):
         df = make_sPRE_table(sPRE.replace('ubq_site', ubq_site))
@@ -332,7 +332,10 @@ def get_fast_exchangers(ubq_sites):
     prox_k6 = 'Q2, L8, T9, G10, K11, T12, T14, V17, T22, D39, A46, G47, Q49, E51, K63, T66, R72, L73, R74, G75, G76',
     dist_k6 = 'L8, T9, G10, K11, T12, T14, E16, S20, T22, D39, A46, G47, Q49, E51, K63, T66, L73, R74',
     prox_k29 = 'L8, T9, G10, K11, T12, T14, V17, S20, T22, A46, G47, Q49, E51, D58, T66, R72, L73, R74, G75, G76',
-    dist_k29 = 'L8, T9, G10, K11, T12, T14, S20, T22, R42, A46, G47, Q49, E51, T55, K63, S65, T66, L73, R74')
+    dist_k29 = 'L8, T9, G10, K11, T12, T14, S20, T22, R42, A46, G47, Q49, E51, T55, K63, S65, T66, L73, R74',
+    prox_k33 =  'L8, T9, G10, K11, T12, V17, T22, A46, G47, Q49, E51, T66, R72, L73, R74, G75, G76',
+    dist_k33 = 'L8, T9, G10, K11, T12, T14, E16, S20, T22, Q31, A46, G47, Q49, E51, D58, K63, T66, R72, L73, R74'
+    )
 
     AAs = get_column_names_from_pdb(return_AAs=True)
     residues = get_column_names_from_pdb(return_residues=True)
@@ -351,7 +354,7 @@ def get_fast_exchangers(ubq_sites):
                     append.append(False)
             fast_exchangers.append(append)
 
-    data = [fast_exchangers[0] + fast_exchangers[1], fast_exchangers[2] + fast_exchangers[3]]
+    data = [fast_exchangers[0] + fast_exchangers[1], fast_exchangers[2] + fast_exchangers[3], fast_exchangers[4] + fast_exchangers[5]]
     columns = [f'{i} {j} fast_exchange' for i, j in itertools.product(['proximal', 'distal'], residues)]
 
     fast_exchangers = pd.DataFrame(data, columns=columns, index=ubq_sites).T

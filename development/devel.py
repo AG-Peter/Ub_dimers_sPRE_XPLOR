@@ -91,11 +91,13 @@ _ = xplor.functions.parallel_xplor(['k6', 'k29', 'k33'], from_tmp=True, max_len=
 # %% Prepare the psf files
 # xplor.functions.create_psf_files(['k6', 'k29', 'k33'])
 
+
 # %% make the tbl files
-# xplor.functions.parse_input_files.make_15_N_table('data/spre_and_relaxation_data_k6_k29_k33/relaxation_file_ub2_k6.txt',
-#                                 out_file='/home/kevin/git/xplor_functions/xplor/data/diUbi_sPRE_k6_w_CONECT.tbl')
-# xplor.functions.parse_input_files.make_sPRE_table('data/spre_and_relaxation_data_k6_k29_k33/di_ub2_k6_*_sPRE.txt',
-#                                 out_file='/tmp/pycharm_project_13/xplor/data/diUbi_sPRE_k6_w_CONECT.tbl')
+# ubq_site = 'k33'
+# xplor.functions.parse_input_files.make_15_N_table(f'data/spre_and_relaxation_data_k6_k29_k33/relaxation_file_ub2_{ubq_site}.txt',
+#                                 out_file=f'{os.getcwd()}/xplor/data/diUbi_sPRE_{ubq_site}_w_CONECT.tbl')
+# xplor.functions.parse_input_files.make_sPRE_table(f'data/spre_and_relaxation_data_k6_k29_k33/di_ub2_{ubq_site}_*_sPRE.txt',
+#                                 out_file=f'{os.getcwd()}/xplor/data/diUbi_sPRE_{ubq_site}_w_CONECT.tbl')
 
 # %% Write arparse lines
 # xplor.argparse.write_argparse_lines_from_yaml_or_dict(print_argparse=True)

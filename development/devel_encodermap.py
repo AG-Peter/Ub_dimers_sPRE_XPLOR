@@ -97,10 +97,12 @@ from xplor.functions.functions import get_ubq_site
 df_comp = pd.read_csv('/home/kevin/projects/tobias_schneider/values_from_every_frame/from_package/2021-07-23T16:49:44+02:00_df_no_conect.csv', index_col=0)
 if not 'ubq_site' in df_comp.keys():
     df_comp['ubq_site'] = df_comp['traj_file'].map(get_ubq_site)
-df_obs = xplor.functions.parse_input_files.get_observed_df(['k6', 'k29'])
-fast_exchangers = xplor.functions.parse_input_files.get_fast_exchangers(['k6', 'k29'])
-in_secondary = xplor.functions.parse_input_files.get_in_secondary(['k6', 'k29'])
+df_obs = xplor.functions.parse_input_files.get_observed_df(['k6', 'k29', 'k33'])
+fast_exchangers = xplor.functions.parse_input_files.get_fast_exchangers(['k6', 'k29', 'k33'])
+in_secondary = xplor.functions.parse_input_files.get_in_secondary(['k6', 'k29', 'k33'])
 df_comp_norm, centers_prox, centers_dist = xplor.functions.normalize_sPRE(df_comp, df_obs)
+
+print(df_obs)
 
 # %%
 
@@ -110,6 +112,7 @@ trajs = {}
 
 from encodermap.misc.clustering import gen_dummy_traj, rmsd_centroid_of_cluster
 from encodermap.plot.plotting import render_vmd
+from xplor.functions.functions import make_linear_combination_from_clusters
 
 def ckpt_step(file):
     file = os.path.basename(file).split('.')[0].split('_')[-1]
