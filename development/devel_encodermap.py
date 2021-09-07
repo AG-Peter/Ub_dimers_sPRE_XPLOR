@@ -104,6 +104,15 @@ df_comp_norm, centers_prox, centers_dist = xplor.functions.normalize_sPRE(df_com
 
 print(df_obs)
 
+# %% develop an analysis function
+if not 'xplor' in globals():
+    import xplor
+analysis = xplor.functions.EncodermapSPREAnalysis()
+analysis.set_settings(['k6'])
+analysis.load_trajs()
+analysis.load_highd()
+
+
 # %%
 
 trajs = {}
