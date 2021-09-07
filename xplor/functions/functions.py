@@ -971,7 +971,13 @@ def _rename_atoms_according_to_charmm(psf_file, pdb_file, saveloc=None):
 
     """
     fixer = PDBFixer(pdb_file)
-    fixer.addMissingHydrogens(pH=13.0)
+    try:
+        fixer.addMissingHydrogens(pH=13.0)
+    except Exception:
+        _ = md.load(pdb_file)
+        for r in _.top.residues:
+            print(r)
+        raise
 
     if not isinstance(pdb_file, RAMFile):
         os.remove(pdb_file)
