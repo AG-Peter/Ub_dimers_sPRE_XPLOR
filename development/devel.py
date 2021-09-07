@@ -84,9 +84,9 @@ series = xplor.functions.get_series_from_mdtraj(frame, xtc, pdb, 0, from_tmp=Tru
 pd.options.display.min_rows = 40
 
 # %% Why are the series with isopeptides empty?
-_ = xplor.functions.parallel_xplor(['k6', 'k29', 'k33'], from_tmp=True, max_len=20, write_csv=False,
+_ = xplor.functions.parallel_xplor(['k6', 'k29', 'k33'], from_tmp=True, write_csv=False,
                                   df_outdir='/home/kevin/projects/tobias_schneider/values_from_every_frame/from_package_with_conect/',
-                                  suffix='_df.csv', parallel=False, break_after=3)
+                                  suffix='_df.csv', parallel=False)
 
 # %% Prepare the psf files
 # xplor.functions.create_psf_files(['k6', 'k29', 'k33'])

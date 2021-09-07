@@ -526,7 +526,7 @@ def parallel_xplor(ubq_sites, simdir='/home/andrejb/Research/SIMS/2017_*', n_thr
 
     # get list of already existing dfs
     files = glob.glob(f'{df_outdir}*{suffix}')
-    if files and write_csv:
+    if files:
         highest_datetime_csv = sorted(files, key=get_iso_time)[-1]
         df = pd.read_csv(highest_datetime_csv, index_col=0)
     else:
@@ -972,7 +972,13 @@ def _rename_atoms_according_to_charmm(psf_file, pdb_file, saveloc=None):
 
     """
     fixer = PDBFixer(pdb_file)
-    fixer.addMissingHydrogens(pH=13.0)
+    try:
+        fixer.addMissingHydrogens(pH=13.0)
+    except Exception:
+        _ = md.load(pdb_file)
+        for r in _.top.residues:
+            print(r)
+        raise
 
     if not isinstance(pdb_file, RAMFile):
         os.remove(pdb_file)
