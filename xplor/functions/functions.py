@@ -235,15 +235,7 @@ def is_aa_sim(file):
 
 def get_ubq_site(traj_file):
     """Returns ubq_site and basename for a traj_file."""
-    substrings = traj_file.split('_')
-    try:
-        ubq_site = substrings[[substr.startswith('k') for substr in substrings].index(True)]
-    except ValueError:
-        if 'm1' in traj_file:
-            return 'm1'
-        else:
-            raise
-    return ubq_site
+    return get_ubq_site_and_basename(traj_file)[1]
 
 
 def get_ubq_site_and_basename(traj_file):
@@ -251,11 +243,11 @@ def get_ubq_site_and_basename(traj_file):
     basename = traj_file.split('/')[-2]
     if basename == 'data':
         basename = traj_file.split('/')[-1].split('.')[0]
-    substrings = traj_file.split('_')
+    substrings = basename.split('_')
     try:
-        ubq_site = substrings[[substr.startswith('k') for substr in substrings].index(True)]
+        ubq_site = substrings[[substr.lower().startswith('k') for substr in substrings].index(True)]
     except ValueError:
-        if 'm1' in traj_file:
+        if 'm1' in traj_file or 'M1' in traj_file:
             return basename, 'm1'
         else:
             print(basename)
@@ -457,7 +449,7 @@ def call_xplor_with_yaml(pdb_file, psf_file=None, yaml_file='', from_tmp=False,
 
 def parallel_xplor(ubq_sites, simdir='/home/andrejb/Research/SIMS/2017_*', n_threads='max-2',
                    df_outdir='/home/kevin/projects/tobias_schneider/values_from_every_frame/from_package/',
-                   suffix='_df_no_conect.csv', write_csv=True, fix_isopeptides=25, specific_index=None, parallel=False,
+                   suffix='_df_no_conect.csv', write_csv=True, fix_isopeptides=True, specific_index=None, parallel=False,
                    subsample=5, yaml_file='', testing=False, from_tmp=False, max_len=-1, break_after=False, **kwargs):
     """Runs xplor on many simulations in parallel.
 
@@ -534,13 +526,17 @@ def parallel_xplor(ubq_sites, simdir='/home/andrejb/Research/SIMS/2017_*', n_thr
 
     # run loop
     for i, ubq_site in enumerate(ubq_sites):
-        for j, dir_ in enumerate(glob.glob(f"{simdir}{ubq_site}_*")):
+        for j, dir_ in enumerate(glob.glob(f"{simdir}{ubq_site}_*") + glob.glob(f'/home/kevin/projects/molsim/diUbi_aa/{ubq_site.upper()}_*')):
             traj_file = dir_ + '/traj_nojump.xtc'
-            if not is_aa_sim(traj_file):
-                print(f"{traj_file} is not an AA sim")
-                continue
+            if 'andrejb' in traj_file:
+                if not is_aa_sim(traj_file):
+                    print(f"{traj_file} is not an AA sim")
+                    continue
             basename = traj_file.split('/')[-2]
-            top_file = dir_ + '/start.pdb'
+            if 'andrejb' in traj_file:
+                top_file = dir_ + '/start.pdb'
+            else:
+                top_file = dir_ + '/init.gro'
             with Capturing() as output:
                 top_aa = CustomGromacsTopFile(f'/home/andrejb/Software/custom_tools/topology_builder/topologies/gromos54a7-isop/diUBQ_{ubq_site.upper()}/system.top',
                                               includeDir='/home/andrejb/Software/gmx_forcefields')
@@ -579,18 +575,21 @@ def parallel_xplor(ubq_sites, simdir='/home/andrejb/Research/SIMS/2017_*', n_thr
                         if a.name == 'HQ': a.name = 'HZ1'
 
             # create an array of Trues for fix_isopeptides
-            if fix_isopeptides is True and specific_index is None:
+            if fix_isopeptides is True:
                 fix_isopeptides_arr = np.full(traj.n_frames, True)[:max_len:subsample]
-            elif fix_isopeptides < subsample:
-                raise Exception("`fix_isopeptides` is smaller than `subsample`. Please fix.")
-            elif specific_index is not None:
-                pass
-            else:
-                if fix_isopeptides % subsample != 0:
-                    raise Exception("`fix_isopeptides` % `subsample` should be 0. Please change them to be divisible.")
-                _ = np.full(traj.n_frames, False)[:max_len:subsample]
-                _[::int(fix_isopeptides/subsample)] = True
-                fix_isopeptides_arr = _
+            elif fix_isopeptides is False:
+                fix_isopeptides_arr = np.full(traj.n_frames, False)[:max_len:subsample]
+            elif isinstance(fix_isopeptides, int):
+                if fix_isopeptides < subsample:
+                    raise Exception("`fix_isopeptides` is smaller than `subsample`. Please fix.")
+                elif specific_index is not None:
+                    pass
+                else:
+                    if fix_isopeptides % subsample != 0:
+                        raise Exception("`fix_isopeptides` % `subsample` should be 0. Please change them to be divisible.")
+                    _ = np.full(traj.n_frames, False)[:max_len:subsample]
+                    _[::int(fix_isopeptides/subsample)] = True
+                    fix_isopeptides_arr = _
 
             # parallel call
             if parallel:
@@ -1501,19 +1500,32 @@ def make_linear_combination_from_clusters(trajs, df, df_obs, fast_exchangers, ub
 
     # calculcate the per-cluster per-residue means
     cluster_means = []
-    for cluster_num in range(int(df['cluster_membership'].max())):
+    for cluster_num in np.unique((df['cluster_membership'])):
+        if cluster_num == -1:
+            continue
         mean = np.mean(df[sPRE_ind][df['cluster_membership'] == cluster_num], axis=0)
         cluster_means.append(mean)
     cluster_means = np.vstack(cluster_means)
-    print(np.any(np.isnan(cluster_means)))
+    # print(cluster_means.shape, obs.shape)
+    # print(np.any(np.isnan(cluster_means)))
 
     # exclude fast exchangers
     fast_exchange = fast_exchangers[ubq_site].values
 
+    assert np.all(~np.isnan(cluster_means))
+    assert np.all(~np.isnan(obs))
+
+    # test numpy lsrq
+    # solv = np.linalg.lstsq(cluster_means.T[~fast_exchange], obs[~fast_exchange])
+    # print(solv)
+
+    # test scipy nnls
+    solv = scipy.optimize.nnls(cluster_means.T[~fast_exchange], obs[~fast_exchange])[0]
+
     # make linear combination
-    x = scipy.optimize.lsq_linear(cluster_means.T[~fast_exchange], obs[~fast_exchange], bounds=(0, 1))
-    argsort = np.argsort(x.x)[::-1]
-    with np.printoptions(suppress=True):
-        print(argsort)
-        print(x.x[argsort] * 100)
-    return x.x
+    # x = scipy.optimize.lsq_linear(cluster_means.T[~fast_exchange], obs[~fast_exchange], bounds=(0, 1))
+    # argsort = np.argsort(x.x)[::-1]
+    # with np.printoptions(suppress=True):
+    #    print(argsort)
+    #     print(x.x[argsort])
+    return solv
