@@ -2,6 +2,7 @@
 # Imports
 ################################################################################
 import matplotlib.pyplot as plt
+import seaborn as sns
 import mdtraj as md
 import numpy as np
 import pandas as pd
@@ -83,13 +84,15 @@ class EncodermapSPREAnalysis:
 
         """
         ow_dict = {'load_trajs': False, 'load_highd': False, 'train_encodermap': False,
-                   'load_xplor_data': False, 'cluster': False}
+                   'load_xplor_data': False, 'cluster': False, 'plot_lowd': False}
         ow_dict.update(overwrite_dict)
         self.load_trajs(overwrite=ow_dict['load_trajs'])
         self.load_highd(overwrite=ow_dict['load_highd'])
         self.train_encodermap(overwrite=ow_dict['train_encodermap'])
         self.load_xplor_data(overwrite=ow_dict['load_xplor_data'])
         self.cluster(overwrite=ow_dict['cluster'])
+        for ubq_site in self.ubq_sites:
+            self.plot_lowd(ubq_site, overwrite=ow_dict['plot_lowd'])
 
     def load_trajs(self, overwrite=False, with_cg=True):
         if hasattr(self, 'trajs'):
@@ -253,20 +256,23 @@ class EncodermapSPREAnalysis:
 
     def cluster(self, overwrite=False):
         for i, ubq_site in enumerate(self.ubq_sites):
-            if not hasattr(self.trajs[ubq_site], 'cluster_membership'):
+            if not hasattr(self.trajs[ubq_site], 'cluster_membership') or overwrite:
                 aa_cluster_file = os.path.join(self.analysis_dir, f'cluster_membership_aa_{ubq_site}.npy')
                 cg_cluster_file = os.path.join(self.analysis_dir, f'cluster_membership_cg_{ubq_site}.npy')
                 if not all([os.path.isfile(file) for file in [aa_cluster_file, cg_cluster_file]]) or overwrite:
-                    clusterer = hdbscan.HDBSCAN(min_cluster_size=750, cluster_selection_method='leaf').fit(
+                    clusterer = hdbscan.HDBSCAN(min_cluster_size=2500, cluster_selection_method='leaf').fit(
                         self.trajs[ubq_site].lowd)
-                    if max(clusterer.labels_) > 10:
+                    if max(clusterer.labels_) > 20:
                         raise Exception(f"Too many clusters {np.unique(clusterer.labels_)}")
                     else:
                         print(f"Found {np.unique(clusterer.labels_)} clusters.")
                     aa_index = np.arange(self.aa_trajs[ubq_site].n_frames)
-                    cg_index = np.arange(self.aa_trajs[ubq_site].n_frames, np.arange(self.cg_trajs[ubq_site].n_frames))
-                    print(aa_index.shape, self.aa_trajs[ubq_site].n_frames, cg_index.shape, self.cg_trajs[ubq_site].n_frames)
-                    self.trajs[ubq_site].load_CVs(clusterer.labels_, 'cluster_membership')
+                    cg_index = np.arange(self.aa_trajs[ubq_site].n_frames,
+                                         self.cg_trajs[ubq_site].n_frames + self.aa_trajs[ubq_site].n_frames)
+                    self.aa_trajs[ubq_site].load_CVs(clusterer.labels_[aa_index], 'cluster_membership')
+                    self.cg_trajs[ubq_site].load_CVs(clusterer.labels_[cg_index], 'cluster_membership')
+                    np.save(aa_cluster_file, clusterer.labels_[aa_index])
+                    np.save(cg_cluster_file, clusterer.labels_[cg_index])
                 else:
                     self.aa_trajs[ubq_site].load_CVs(np.load(aa_cluster_file), 'cluster_membership')
                     self.cg_trajs[ubq_site].load_CVs(np.load(cg_cluster_file), 'cluster_membership')
@@ -287,31 +293,37 @@ class EncodermapSPREAnalysis:
             self.aa_trajs[ubq_site].load_CVs(aa_lowd, attr_name='lowd')
             self.cg_trajs[ubq_site].load_CVs(cg_lowd, attr_name='lowd')
 
-    def plot_lowd(self, ubq_site, nbins=100):
-        plt.close('all')
-        fig, (ax1, ax2, ax3) = plt.subplots(ncols=3, figsize=(15, 5), sharex=True, sharey=True)
+    def plot_lowd(self, ubq_site, overwrite=False, nbins=100):
+        outfile = os.path.join(self.analysis_dir, f'lowd_plots_{ubq_site}.png')
+        if not os.path.isfile(outfile) or overwrite:
+            plt.close('all')
+            fig, (ax1, ax2, ax3) = plt.subplots(ncols=3, figsize=(15, 5), sharex=True, sharey=True)
+
+            color_palette = sns.color_palette('deep', max(self.trajs[ubq_site].cluster_membership) + 1)
+            cluster_colors = [color_palette[x] if x >= 0
+                              else (0.5, 0.5, 0.5)
+                              for x in self.trajs[ubq_site].cluster_membership]
+
+            ax1.scatter(*self.trajs[ubq_site].lowd[:, :2].T, s=1, c=cluster_colors)
+            pyemma.plots.plot_free_energy(*self.trajs[ubq_site].lowd[:, :2].T, cmap='turbo', ax=ax2, nbins=nbins, levels=50, cbar=False)
+
+            aa_H, xedges, yedges = np.histogram2d(*self.aa_trajs[ubq_site].lowd[:, :2].T, bins=nbins)
+            xcenters = np.mean(np.vstack([xedges[0:-1], xedges[1:]]), axis=0)
+            ycenters = np.mean(np.vstack([yedges[0:-1], yedges[1:]]), axis=0)
+            X, Y = np.meshgrid(xcenters, ycenters)
+
+            aa_H[aa_H > 0] = 1
+            ax3.contour(X, Y, aa_H, levels=2, cmap='Blues', label='aa')
+
+            cg_H, xedges, yedges = np.histogram2d(*self.cg_trajs[ubq_site].lowd[:, :2].T, bins=nbins)
+            xcenters = np.mean(np.vstack([xedges[0:-1], xedges[1:]]), axis=0)
+            ycenters = np.mean(np.vstack([yedges[0:-1], yedges[1:]]), axis=0)
+            X, Y = np.meshgrid(xcenters, ycenters)
+
+            cg_H[cg_H > 0] = 1
+            ax3.contour(X, Y, cg_H, levels=2, cmap='plasma', label='aa')
 
 
-        ax1.scatter(*self.aa_trajs[ubq_site].lowd[::10, :2].T, s=1, label='aa')
-        ax1.scatter(*self.cg_trajs[ubq_site].lowd[::10, :2].T, s=1, label='cg')
-        ax1.legend()
-        pyemma.plots.plot_free_energy(*self.trajs[ubq_site].lowd[:, :2].T, cmap='turbo', ax=ax2, nbins=nbins, levels=50, cbar=False)
-
-        aa_H, xedges, yedges = np.histogram2d(*self.aa_trajs[ubq_site].lowd[:, :2].T, bins=nbins)
-        xcenters = np.mean(np.vstack([xedges[0:-1], xedges[1:]]), axis=0)
-        ycenters = np.mean(np.vstack([yedges[0:-1], yedges[1:]]), axis=0)
-        X, Y = np.meshgrid(xcenters, ycenters)
-
-        aa_H[aa_H > 0] = 1
-        ax3.contour(X, Y, aa_H, levels=2, cmap='Blues', label='aa')
-
-        cg_H, xedges, yedges = np.histogram2d(*self.cg_trajs[ubq_site].lowd[:, :2].T, bins=nbins)
-        xcenters = np.mean(np.vstack([xedges[0:-1], xedges[1:]]), axis=0)
-        ycenters = np.mean(np.vstack([yedges[0:-1], yedges[1:]]), axis=0)
-        X, Y = np.meshgrid(xcenters, ycenters)
-
-        cg_H[cg_H > 0] = 1
-        ax3.contour(X, Y, cg_H, levels=2, cmap='plasma', label='aa')
-
-
-        plt.savefig('/home/kevin/tmp.png')
+            plt.savefig(outfile)
+        else:
+            print("File already present")

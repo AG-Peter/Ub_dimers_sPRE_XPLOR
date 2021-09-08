@@ -147,7 +147,7 @@ def create_psf_files(ubq_sites):
         tmp_pdb_with_dir = f'xplor/data/{tmp_pdb}'
         tmp_psf = tmp_pdb.replace('.pdb', '.psf')
         tmp_psf_with_dir = tmp_pdb_with_dir.replace('.pdb', '.psf')
-        final_psf = f'xplor/data/{ubq_site}_psf_for_xplor_with_added_bond.psf'
+        final_psf = f'xplor/data/{ubq_site.lower()}_psf_for_xplor_with_added_bond.psf'
         traj.save_pdb(tmp_pdb_with_dir)
         try:
             call_pdb2psf(tmp_pdb, 'xplor/data/', os.getcwd())

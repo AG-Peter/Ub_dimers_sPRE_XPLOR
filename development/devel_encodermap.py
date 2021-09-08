@@ -28,11 +28,7 @@ if not 'xplor' in globals():
     import xplor
 if not 'analysis' in globals():
     analysis = xplor.functions.EncodermapSPREAnalysis(['k6'])
-analysis.analyze(cluster=True)
-
-# %% Plot
-# analysis.load_specific_checkpoint('10000')
-analysis.plot_lowd('k6')
+analysis.analyze(plot_lowd=True, cluster=False)
 
 
 # %%
