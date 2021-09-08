@@ -11,37 +11,6 @@ import xplor
 
 import sys, re, glob, os, itertools, pyemma, json, hdbscan
 
-# %% Create data
-import xplor.functions
-from xplor.functions.functions import is_aa_sim
-from xplor.functions.custom_gromacstopfile import CustomGromacsTopFile
-
-traj_files = {'k6': [], 'k29': [], 'k33': []}
-refs = {}
-arrays = {}
-overwrite = False
-simdir = '/home/andrejb/Research/SIMS/2017_*'
-
-for i, ubq_site in enumerate(['k6', 'k29', 'k33']):
-    for j, dir_ in enumerate(glob.glob(f"{simdir}{ubq_site}_*")):
-        traj_file = dir_ + '/traj_nojump.xtc'
-        if not is_aa_sim(traj_file):
-            continue
-        traj_files[ubq_site].append(dir_ + '/traj_nojump.xtc')
-        if len(refs) <= i:
-            refs[ubq_site] = dir_ + '/start.pdb'
-
-    highd_file = f'xplor/data/highd_ca_pairwise_exclude_2_neighbors_input_{ubq_site}.npy'
-    if not os.path.isfile(highd_file) or overwrite:
-        feat = pyemma.coordinates.featurizer(refs[ubq_site])
-        feat.add_distances_ca(periodic=False)
-        out = pyemma.coordinates.load(traj_files[ubq_site], feat)
-        out = np.vstack(out)
-        np.save(highd_file, out)
-    else:
-        out = np.load(highd_file)
-    arrays[ubq_site] = out
-
 # %% Get data from last working encodermap
 for root, dirs, files in os.walk("/home/kevin/projects/tobias_schneider/"):
     for file in files:
@@ -54,63 +23,16 @@ for root, dirs, files in os.walk("/home/kevin/projects/tobias_schneider/"):
                 print(_['learning_rate'])
                 print(_['n_neurons'])
 
-
-# %%
-
-print(len(traj_files))
-print(len(traj_files['k6']))
-print(traj_files['k6'])
-
-
-# %% Plot encodermap
-em1.plot.distance_histogram(arrays['k6'][::1000], float('inf'), [40, 12, 10, 1, 2, 5])
-plt.show()
-
-
-# %% Train Encodermap
-for i, ubq_site in enumerate(['k6', 'k29', 'k33']):
-    path = f'runs/{ubq_site}/production_run_tf2/'
-    os.makedirs(path, exist_ok=True)
-    parameters = em.Parameters()
-    parameters.main_path = path
-    parameters.n_neurons = [500, 500, 500, 500, 5]
-    parameters.activation_functions = ['', 'tanh', 'tanh', 'tanh', 'tanh',  '']
-    parameters.periodicity = float('inf')
-    parameters.dist_sig_parameters = [40, 12, 10, 1, 2, 5]
-    parameters.batch_size = 64
-    parameters.learning_rate = 0.00001
-
-    e_map = em.EncoderMap(parameters, arrays[ubq_site])
-
-    e_map.train()
-
-# %%
-parameters = em1.Parameters.load('runs/k6/production_run/parameters.json')
-print(parameters.n_neurons)
-e_map = em1.EncoderMap(parameters, arrays[ubq_site], checkpoint_path='/tmp/pycharm_project_462/runs/k6/production_run/checkpoints/step10000.ckpt', read_only=True)
-lowd = e_map.encode(arrays[ubq_site])
-print(lowd.shape)
-
-# %% Load info for linear combination
-
-from xplor.functions.functions import get_ubq_site
-df_comp = pd.read_csv('/home/kevin/projects/tobias_schneider/values_from_every_frame/from_package/2021-07-23T16:49:44+02:00_df_no_conect.csv', index_col=0)
-if not 'ubq_site' in df_comp.keys():
-    df_comp['ubq_site'] = df_comp['traj_file'].map(get_ubq_site)
-df_obs = xplor.functions.parse_input_files.get_observed_df(['k6', 'k29', 'k33'])
-fast_exchangers = xplor.functions.parse_input_files.get_fast_exchangers(['k6', 'k29', 'k33'])
-in_secondary = xplor.functions.parse_input_files.get_in_secondary(['k6', 'k29', 'k33'])
-df_comp_norm, centers_prox, centers_dist = xplor.functions.normalize_sPRE(df_comp, df_obs)
-
-print(df_obs)
-
 # %% develop an analysis function
 if not 'xplor' in globals():
     import xplor
-analysis = xplor.functions.EncodermapSPREAnalysis()
-analysis.set_settings(['k6'])
-analysis.load_trajs()
-analysis.load_highd()
+if not 'analysis' in globals():
+    analysis = xplor.functions.EncodermapSPREAnalysis(['k6'])
+analysis.analyze(cluster=True)
+
+# %% Plot
+# analysis.load_specific_checkpoint('10000')
+analysis.plot_lowd('k6')
 
 
 # %%
