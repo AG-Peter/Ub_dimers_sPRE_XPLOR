@@ -1388,7 +1388,7 @@ def get_series_from_mdtraj(frame, traj_file, top_file, frame_no, testing=False,
     if fix_isopeptides:
         if isopeptide_bonds is None:
             raise Exception("Con only fix psf file when provided a list of str as argument `isopeptide_bonds`.")
-        psf_file = get_local_or_proj_file(f'data/{ubq_site}_psf_for_xplor_with_added_bond.psf')
+        psf_file = get_local_or_proj_file(f'data/{ubq_site.lower()}_psf_for_xplor_with_added_bond.psf')
         pdb_stringio = RAMFile()
         frame.save_pdb(pdb_stringio)
         pdb_stringio.seek(0)
