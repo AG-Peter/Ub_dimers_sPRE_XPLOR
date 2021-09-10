@@ -350,11 +350,13 @@ def normalize_sPRE(df_comp, df_obs, kind='var', norm_res_count=10):
         # append to new frame
         out.append(sPRE_norm)
         print('\n')
+
     out = pd.concat(out)
     df_comp_w_norm = df_comp.copy()
-    df_comp_w_norm = df_comp_w_norm[~ df_comp_w_norm['ubq_site'].str.contains('|'.join(missing))]
+    if missing:
+        df_comp_w_norm = df_comp_w_norm[~ df_comp_w_norm['ubq_site'].str.contains('|'.join(missing))]
     df_comp_w_norm[sPRE_norm.columns] = out.values
-
+    df_comp_w_norm = df_comp_w_norm.fillna(0)
     return df_comp_w_norm, centers_prox, centers_dist
 
 
@@ -1474,7 +1476,7 @@ def get_series_from_mdtraj(frame, traj_file, top_file, frame_no, testing=False,
     return series
 
 
-def make_linear_combination_from_clusters(trajs, df, df_obs, fast_exchangers, ubq_site):
+def make_linear_combination_from_clusters(trajs, df, df_obs, fast_exchangers, ubq_site, return_means=False):
     """Makes a linear combination from sPRE values and clustered trajs.
 
     Args:
@@ -1483,6 +1485,9 @@ def make_linear_combination_from_clusters(trajs, df, df_obs, fast_exchangers, ub
         df_obs (pandas.DataFrame): The observerd NMR values.
         fast_exchangers (pandas.DataFrame): Boolean dataframe with residues that exchnage rapidly.
         ubq_site (str): The ubiquitination site currenlty worked on.
+
+    Keyword Args:
+        return_means (bool, optional): Whether to return the cluster means additional to the linear solution.
 
     Returns:
         np.ndarray: The linear combination to build df_obs.
@@ -1534,4 +1539,6 @@ def make_linear_combination_from_clusters(trajs, df, df_obs, fast_exchangers, ub
     # with np.printoptions(suppress=True):
     #    print(argsort)
     #     print(x.x[argsort])
+    if return_means:
+        return solv, cluster_means
     return solv

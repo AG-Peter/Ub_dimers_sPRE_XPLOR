@@ -3,6 +3,9 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt
 import pandas as pd
 import mdtraj as md
+import pyemma.plots
+import seaborn as sns
+import scipy
 from mpl_toolkits.axes_grid1.axes_divider import make_axes_locatable
 from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
@@ -192,11 +195,43 @@ def plot_many_lines_w_alpha():
     pass
 
 
-def plot_confidence_intervals():
-    pass
+def plot_confidence_intervals(axes, df, df_index, cmap='Blues', cbar=True, alpha=0.8, positions=['proximal', 'distal']):
+    """Plots an envelope around min and max values.
+
+    Args:
+        axes (tuple[mpl.axes]): Two instances of the axes to plot to.
+        df (pd.DataFrame): Pandas dataframe with the data.
+        df_index (Dict[str, str]): A dictionary of {'rows': 'sPRE', 'cols': f'{ubq_site}'}.
+            that defines what data needs to be extracted from df.
+
+    """
+    df = df[df['ubq_site'] == df_index['cols']]
+    out = []
+    for ax, position in zip(axes, positions):
+        index = [df_index['rows'] in col and position in col for col in df.columns]
+        index = df.columns[index]
+        if index.str.contains('normalized').any():
+            index = index[index.str.contains('normalized')]
+        data = df[index].values
+        mean = np.mean(data, axis=0)
+
+        for i in np.linspace(0, 0.99, 100)[::-1]:
+            scipy.stats.t.interval()
+            scipy.stats.t.interval(0.95, len(data)-1, loc=np.mean(data, axis=0), scale=st.sem())
+        out.append(ax)
+    return out
 
 
 def plot_minmax_envelope(axes, df, df_index, color='lightgrey', alpha=0.8, positions=['proximal', 'distal']):
+    """Plots an envelope around min and max values.
+
+    Args:
+        axes (mpl.axes): Instance of the axes to plot to.
+        df (pd.DataFrame): Pandas dataframe with the data.
+        df_index (Dict[str, str]): A dictionary of {'rows': 'sPRE', 'cols': {ubq_site}}.
+            that defines what data needs to be extracted from df.
+
+    """
     df = df[df['ubq_site'] == df_index['cols']]
     out = []
     for ax, position in zip(axes, positions):
