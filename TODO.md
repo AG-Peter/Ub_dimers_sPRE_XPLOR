@@ -1,0 +1,4 @@
+- [x] sPRE confidence interval
+- [x] quality factor for 2, 3, 4, .., clusters
+- [ ] Cage representations using anistrotropy
+- [ ] Watch video.

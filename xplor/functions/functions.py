@@ -255,7 +255,7 @@ def get_ubq_site_and_basename(traj_file):
     return basename, ubq_site
 
 
-def normalize_sPRE(df_comp, df_obs, kind='var', norm_res_count=10):
+def normalize_sPRE(df_comp, df_obs, kind='var', norm_res_count=10, get_factors=False):
     """Normalizes a dataframe with sPRE values in it and returns a new df.
 
     Args:
@@ -281,6 +281,7 @@ def normalize_sPRE(df_comp, df_obs, kind='var', norm_res_count=10):
     """
     out = []
     missing = []
+    factors_out = {}
 
     residues = get_column_names_from_pdb(return_residues=True)
 
@@ -336,6 +337,7 @@ def normalize_sPRE(df_comp, df_obs, kind='var', norm_res_count=10):
         factors_dist = v_obs[centers_dist] / v_calc[centers_dist]
         f_prox = np.mean(factors_prox)
         f_dist = np.mean(factors_dist)
+        factors_out[ubq_site] = [f_prox, f_dist]
         print(f"Proximal factor = {f_prox}, Distal factor = {f_dist}")
 
         # copy the existing values and multiply
@@ -350,6 +352,9 @@ def normalize_sPRE(df_comp, df_obs, kind='var', norm_res_count=10):
         # append to new frame
         out.append(sPRE_norm)
         print('\n')
+
+    if get_factors:
+        return factors_out
 
     out = pd.concat(out)
     df_comp_w_norm = df_comp.copy()
@@ -1476,7 +1481,7 @@ def get_series_from_mdtraj(frame, traj_file, top_file, frame_no, testing=False,
     return series
 
 
-def make_linear_combination_from_clusters(trajs, df, df_obs, fast_exchangers, ubq_site, return_means=False):
+def make_linear_combination_from_clusters(trajs, df, df_obs, fast_exchangers, ubq_site, return_means=False, cluster_nums=None):
     """Makes a linear combination from sPRE values and clustered trajs.
 
     Args:
@@ -1514,7 +1519,7 @@ def make_linear_combination_from_clusters(trajs, df, df_obs, fast_exchangers, ub
     for cluster_num in np.unique((df['cluster_membership'])):
         if cluster_num == -1:
             continue
-        mean = np.mean(df[sPRE_ind][df['cluster_membership'] == cluster_num], axis=0)
+        mean = np.median(df[sPRE_ind][df['cluster_membership'] == cluster_num], axis=0)
         cluster_means.append(mean)
     cluster_means = np.vstack(cluster_means)
     # print(cluster_means.shape, obs.shape)

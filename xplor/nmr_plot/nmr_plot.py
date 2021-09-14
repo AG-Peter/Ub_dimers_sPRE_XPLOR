@@ -1,3 +1,5 @@
+import copy
+
 import numpy as np
 import matplotlib as mpl
 import matplotlib.pyplot as plt
@@ -5,11 +7,17 @@ import pandas as pd
 import mdtraj as md
 import pyemma.plots
 import seaborn as sns
+import functools
 import scipy
+import glob
 from mpl_toolkits.axes_grid1.axes_divider import make_axes_locatable
 from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
 from matplotlib.patches import Rectangle
+import statsmodels.stats.api as sms
+from ..functions.functions import get_series_from_mdtraj, Capturing
+from ..functions.custom_gromacstopfile import CustomGromacsTopFile
+from ..misc import get_iso_time
 
 import matplotlib.text as mpl_text
 
@@ -24,7 +32,6 @@ class AnyObject:
 
 class AnyObjectHandler:
     def legend_artist(self, legend, orig_handle, fontsize, handlebox):
-        print(orig_handle)
         x0, y0 = handlebox.xdescent, handlebox.ydescent
         width, height = handlebox.width, handlebox.height
         patch = mpl_text.Text(x=0, y=0, text=orig_handle.my_text, color=orig_handle.my_color, verticalalignment=u'baseline', 
@@ -144,7 +151,7 @@ def _make_seq_annotation(traj, sequence_annotation_frame=0):
 
 
 def add_sequence_to_xaxis(ax, pdb_id='1UBQ', remove_solvent=True, sequence_annotation_frame=0,
-                          sequence_subsample=1, bottom_ax_size='7%', bottom_ax_pad='15%'):
+                          sequence_subsample=1, bottom_ax_size='7%', bottom_ax_pad='20%'):
     import biotite.sequence.graphics as graphics
     from Bio.SeqUtils import seq3
 
@@ -175,27 +182,55 @@ def add_sequence_to_xaxis(ax, pdb_id='1UBQ', remove_solvent=True, sequence_annot
     return ax
 
 
-def plot_line_data(axes, df, df_index, color='C1', positions=['proximal', 'distal']):
+def plot_line_data(axes, df, df_index, color='C1', positions=['proximal', 'distal'], mask_15N=True):
     df = df[df_index['cols']]
     out = []
     for ax, position in zip(axes, positions):
         index = [df_index['rows'] in ind and position in ind for ind in df.index]
         data = df[index].values
-        assert len(data) == len(ax.get_xticks())
+        if '15N' in df_index['rows'] and mask_15N:
+            data = np.ma.masked_where(data == 0, data, copy=True)
         ax.plot(np.arange(len(data)), data, color=color)
         out.append(ax)
     return out
 
 
-def plot_boxplots():
-    pass
+def plot_boxplots(axes, df, df_index, positions=['proximal', 'distal']):
+    df = df[df['ubq_site'] == df_index['cols']]
+    out = []
+    for ax, position in zip(axes, positions):
+        index = [df_index['rows'] in col and position in col for col in df.columns]
+        index = df.columns[index]
+        if index.str.contains('normalized').any():
+            index = index[index.str.contains('normalized')]
+        data = df[index].values
+        ax.boxplot(data)
+        out.append(ax)
+    return out
 
 
 def plot_many_lines_w_alpha():
     pass
 
 
-def plot_confidence_intervals(axes, df, df_index, cmap='Blues', cbar=True, alpha=0.8, positions=['proximal', 'distal']):
+def mean_confidence_interval(data, confidence=0.95):
+    a = 1.0 * np.array(data)
+    n = len(a)
+    m, se = np.mean(a), scipy.stats.sem(a)
+    h = se * scipy.stats.t.ppf((1 + confidence) / 2., n-1)
+    return m, m-h, m+h
+
+def get_color(colorRGBA1, colorRGBA2):
+    alpha = 255 - ((255 - colorRGBA1[3]) * (255 - colorRGBA2[3]) / 255)
+    red   = (colorRGBA1[0] * (255 - colorRGBA2[3]) + colorRGBA2[0] * colorRGBA2[3]) / 255
+    green = (colorRGBA1[1] * (255 - colorRGBA2[3]) + colorRGBA2[1] * colorRGBA2[3]) / 255
+    blue  = (colorRGBA1[2] * (255 - colorRGBA2[3]) + colorRGBA2[2] * colorRGBA2[3]) / 255
+    return (int(red), int(green), int(blue), int(alpha))
+
+def plot_confidence_intervals(axes, df, df_index, cmap='Blues', cbar=True,
+                              alpha=0.2, positions=['proximal', 'distal'],
+                              trajs=None, cluster_num=None, cbar_axis=None,
+                              with_outliers=True, outliers_offset=0.0):
     """Plots an envelope around min and max values.
 
     Args:
@@ -205,21 +240,148 @@ def plot_confidence_intervals(axes, df, df_index, cmap='Blues', cbar=True, alpha
             that defines what data needs to be extracted from df.
 
     """
-    df = df[df['ubq_site'] == df_index['cols']]
+    if trajs is not None:
+        test = len(np.where(trajs.cluster_membership == cluster_num)[0])
+        names = np.unique(trajs.name_arr[trajs.cluster_membership == cluster_num])
+        indices = trajs.index_arr[trajs.cluster_membership == cluster_num]
+        traj_nums = np.unique(indices[:,0])
+        if not len(names) == len(traj_nums):
+            print(names)
+            print(traj_nums)
+            raise Exception("Could not identify traj names and indices")
+        df_indices = []
+        for traj_num, name in zip(traj_nums, names):
+            frames = indices[indices[:, 0] == traj_num][:, 1]
+            fitting_name = df['traj_file'].str.contains(name)
+            fitting_frames = df['frame'].isin(frames)
+            extend = np.where(fitting_name & fitting_frames)[0].tolist()
+            if cluster_num is not None:
+                if extend == []:
+                    print(f"No points in cluster for {name}")
+                else:
+                    print(f"{len(extend)} points in cluster for {name}")
+            df_indices.extend(extend)
+        if df_indices == []:
+            print(f"No cluster points for cluster {cluster_num} in {names}")
+            return
+        df_indices = np.array(df_indices)
+    if cluster_num is not None:
+        df = df.iloc[df_indices]
+        assert len(df) == len(df_indices)
+    else:
+        df = df[df['ubq_site'] == df_index['cols']]
+    if df.isna().any(None):
+        df = df.fillna(0)
     out = []
-    for ax, position in zip(axes, positions):
+
+    # prepare cmap
+    cmap = plt.get_cmap(cmap, 5).copy()
+    plot_color = cmap(4)
+    cmap = cmap(np.arange(5))
+    cmap[:, -1] = alpha
+    cmap = mpl.colors.ListedColormap(cmap[2:4])
+
+    for iter_, (ax, position) in enumerate(zip(axes, positions)):
         index = [df_index['rows'] in col and position in col for col in df.columns]
         index = df.columns[index]
         if index.str.contains('normalized').any():
             index = index[index.str.contains('normalized')]
         data = df[index].values
-        mean = np.mean(data, axis=0)
+        q1, median, q3 = df[index].quantile([0.25, 0.5, 0.75], axis='rows').values
 
-        for i in np.linspace(0, 0.99, 100)[::-1]:
-            scipy.stats.t.interval()
-            scipy.stats.t.interval(0.95, len(data)-1, loc=np.mean(data, axis=0), scale=st.sem())
+        if not len(q1) == 76:
+            print(index)
+            print(data.shape)
+            raise Exception("No data")
+
+        iqr = q3 - q1
+        min_ = q1 - 1.5 * iqr
+        max_ = q3 + 1.5 * iqr
+        outliers = np.ma.masked_where((data >= min_) & (data <= max_), data)
+
+        ax.fill_between(range(len(median)), min_, max_, color=cmap(0))
+        ax.fill_between(range(len(median)), q1, q3, color=cmap(1))
+
+        if with_outliers:
+            XX, YY = np.meshgrid(np.arange(outliers.shape[1]), np.arange(outliers.shape[0]))
+            y = outliers.ravel()
+            x = XX.ravel() + outliers_offset
+            ax.scatter(x, y, s=1, color=plot_color)
+
+        # blend the colors
+        # for i, color in enumerate(colors):
+        #     new_color = functools.reduce(get_color, colors[i:])
+
+        if cbar:
+            if cbar_axis is None or cbar_axis == iter_:
+                # cmap = mpl.colors.ListedColormap(blended_colors)
+                sm = mpl.cm.ScalarMappable(cmap=cmap)
+                sm.set_array([])
+                divider = make_axes_locatable(ax)
+                cmap_ticks = np.linspace(0, 1, 2, endpoint=False)
+                cmap_ticks = cmap_ticks + (cmap_ticks[1] - cmap_ticks[0]) / 2
+                cax = divider.append_axes('right', size='2%', pad=0.05)
+                cbar = plt.gcf().colorbar(sm, ticks=cmap_ticks, orientation='vertical', cax=cax, label="Quartile Range")
+                cax.set_yticklabels([r'$\mathrm{Q_{1/3} \mp IQR}$', 'IQR'])
+
+        ax.plot(median, color=plot_color)
+        out.append(ax)
+    return out, plot_color
+
+def plot_single_struct_sPRE(axes, traj, factors, ubq_site, color, positions=['proximal', 'distal']):
+    traj_file = traj.traj_file
+    top_file = traj.top_file
+    traj = traj.traj
+    with Capturing() as output:
+        top_aa = CustomGromacsTopFile(
+            f'/home/andrejb/Software/custom_tools/topology_builder/topologies/gromos54a7-isop/diUBQ_{ubq_site.upper()}/system.top',
+            includeDir='/home/andrejb/Software/gmx_forcefields')
+    traj.top = md.Topology.from_openmm(top_aa.topology)
+
+    isopeptide_indices = []
+    isopeptide_bonds = []
+    for r in traj.top.residues:
+        if r.name == 'GLQ':
+            r.name = 'GLY'
+            for a in r.atoms:
+                if a.name == 'C':
+                    isopeptide_indices.append(a.index + 1)
+                    isopeptide_bonds.append(f"{a.residue.name} {a.residue.resSeq} {a.name}")
+        if r.name == 'LYQ':
+            r.name = 'LYS'
+            for a in r.atoms:
+                if a.name == 'CQ': a.name = 'CE'
+                if a.name == 'NQ':
+                    a.name = 'NZ'
+                    isopeptide_indices.append(a.index + 1)
+                    isopeptide_bonds.append(f"{a.residue.name} {a.residue.resSeq} {a.name}")
+                if a.name == 'HQ': a.name = 'HZ1'
+
+    series = get_series_from_mdtraj(traj, traj_file, top_file, 0, fix_isopeptides=False)
+    series = series.fillna(0)
+
+    out = []
+    for iter_, (ax, position, factor) in enumerate(zip(axes, positions, factors)):
+        index = ['sPRE' in col and position in col for col in series.keys()]
+        data = series[index].values
+        data *= factor
+        ax.plot(np.arange(len(data)), data, color=color)
         out.append(ax)
     return out
+
+
+
+def try_to_plot_15N(axes, ubq_site, mhz=600, cmap='Blues', cbar=True, alpha=0.2,
+                    positions=['proximal', 'distal'], trajs=None, cluster_num=None,
+                    cbar_axis=None, with_outliers=True, outliers_offset=0.0):
+    files = glob.glob('/home/kevin/projects/tobias_schneider/values_from_every_frame/from_package_with_conect/*.csv')
+    sorted_files = sorted(files, key=get_iso_time)
+    df = pd.read_csv(sorted_files[-1], index_col=0)
+    df = df.fillna(0)
+    axes, color = plot_confidence_intervals(axes, df, df_index={'rows': f'15N_relax_{mhz}', 'cols': ubq_site}, cmap=cmap,
+                                            cbar=cbar, alpha=alpha, positions=positions, trajs=trajs, cluster_num=cluster_num,
+                                            cbar_axis=cbar_axis, with_outliers=with_outliers, outliers_offset=outliers_offset)
+    return axes, color
 
 
 def plot_minmax_envelope(axes, df, df_index, color='lightgrey', alpha=0.8, positions=['proximal', 'distal']):
@@ -241,8 +403,6 @@ def plot_minmax_envelope(axes, df, df_index, color='lightgrey', alpha=0.8, posit
             index = index[index.str.contains('normalized')]
         data = df[index].values
         min_, max_ = np.min(data, axis=0), np.max(data, axis=0)
-        assert len(min_) == len(ax.get_xticks()), print(len(min_), int(ax.get_xlim()[1] + 1), ax.get_xticks()[-1] + 1)
-        assert len(max_) == len(ax.get_xticks())
         _ = ax.fill_between(np.arange(len(min_)), min_, max_, color=color, alpha=alpha)
         out.append(ax)
     return out
@@ -254,7 +414,6 @@ def plot_hatched_bars(axes, df, df_index, color='lightgrey', alpha=0.3, position
     for ax, position in zip(axes, positions):
         index = [position in ind for ind in df.index]
         data = df[index].values
-        assert len(data) == len(ax.get_xticks())
         for i, is_fast in enumerate(data):
             if is_fast:
                 _ = ax.axvspan(i - 0.5, i + 0.5, alpha=alpha, fc='none', ec='lightgrey', hatch='//', zorder=-5)
@@ -275,7 +434,7 @@ def color_labels(ax, positions, color='red'):
 def fake_legend(ax, dict_of_fake_labels):
     legend_elements = []
 
-    func_dict = {'line': Line2D, 'envelope': Patch, 'hatchbar': Patch, 'text': AnyObject}
+    func_dict = {'line': Line2D, 'envelope': Patch, 'hatchbar': Patch, 'text': AnyObject, 'scatter': Line2D}
 
     for type_, elements in dict_of_fake_labels.items():
         if type_ == 'line':
@@ -293,6 +452,10 @@ def fake_legend(ax, dict_of_fake_labels):
         elif type_ == 'text':
             for element in elements:
                 legend_element_text = func_dict[type_](element['text'], element['color'], label=element['label'])
+                legend_elements.append(legend_element_text)
+        elif type_ == 'scatter':
+            for element in elements:
+                legend_element_text = func_dict[type_]([0], [0], color='w', marker=element['marker'], markerfacecolor=element['color'], label=element['label'])
                 legend_elements.append(legend_element_text)
         else:
             print(f"Unknown label type {type_}")

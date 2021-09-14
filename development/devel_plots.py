@@ -59,3 +59,4 @@ for ax, centers in zip([ax1, ax2], [centers_prox, centers_dist - 76]):
 
 plt.tight_layout()
 plt.show()
+
