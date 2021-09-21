@@ -299,6 +299,11 @@ def plot_confidence_intervals(axes, df, df_index, cmap='Blues', cbar=True,
         max_ = q3 + 1.5 * iqr
         outliers = np.ma.masked_where((data >= min_) & (data <= max_), data)
 
+        min_[min_ < 0] = 0
+        max_[max_ < 0] = 0
+        q1[q1 < 0] = 0
+        q3[q3 < 0] = 0
+
         ax.fill_between(range(len(median)), min_, max_, color=cmap(0))
         ax.fill_between(range(len(median)), q1, q3, color=cmap(1))
 

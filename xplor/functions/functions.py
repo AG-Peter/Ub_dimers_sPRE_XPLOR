@@ -219,6 +219,8 @@ def datetime_windows_and_linux_compatible():
 
 def is_aa_sim(file):
     """From a traj_nojump.xtc, decides, whether sim is an aa sim."""
+    if '/home/kevin/projects/molsim/diUbi_aa' in file:
+        return True
     directory = '/'.join(file.split('/')[:-1])
     contents = os.listdir(directory)
     gro_file = os.path.join(directory, 'start.gro')

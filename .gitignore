@@ -134,3 +134,8 @@ runs/
 /xplor/data/highd*.npy
 /xplor/data/highd*.npy
 /xplor/data/highd*.npy
+
+Latex
+*.aux
+*.log
+*.synctex.gz

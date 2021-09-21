@@ -1,0 +1,46 @@
+%! Author = kevin
+%! Date = 15.09.21
+
+% Preamble
+\documentclass[11pt]{article}
+
+% Packages
+\usepackage{amsmath}
+\usepackage{graphicx}
+\usepackage{here}
+
+% Document
+\begin{document}
+
+\section{Summary for sPRE calculations with XPLOR}
+
+    The summary of this project comprises three main points: Results, Problems, Methods
+
+    \subsection{Results}
+
+    \paragraph{Running XPLOR on MD data} Th
+
+    \paragraph{How many clusters are needed?} This question can be answered via this graph:
+
+    \begin{figure}[H]
+        \includegraphics{/mnt/data/kevin/xplor_analysis_files/quality_factors_k6}
+    \end{figure}
+
+    On the x-axis is the number of considered clusters. This includes all permustations,  the 2 considered clusters are
+    found by permuting over the number of clusters: (0, 1), (0, 2), ... (0, 12), (1, 1), ... (1, 2), ...
+    The y-axis is the mean abs difference between the calucaltion and the linear combination of the clusters. The
+    linear combination was built as such:
+
+    \begin{align}
+    \mathbf{sPRE} &= v_m &= x1 \cdot v_{c1} + x2 \cdot v_{c2} \hdots \\
+    \mathbf{sPRE} &= y &= \begin{bmatrix}
+           v_(m, a) \\
+            \\
+           \vdots \\
+           x_{m}
+         \end{bmatrix}
+    (sPRE_1, sPRE_2, ...) &= x1 * (sPRE_1, sPRE_2, sPRE_3), x2 * (sPRE_1, sPRE_2, ...)
+    \end{align}
+
+
+\end{document}

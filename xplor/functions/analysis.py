@@ -10,19 +10,22 @@ import seaborn as sns
 import mdtraj as md
 import numpy as np
 import pandas as pd
+import sklearn
+from scipy.stats import norm as scipy_norm
+from sklearn.mixture import GaussianMixture as GMM
 import os, sys, glob, multiprocessing, copy, ast, subprocess, yaml, shutil, scipy, json
-from .custom_gromacstopfile import CustomGromacsTopFile
 import warnings
 from scipy.spatial.distance import cdist
-from .functions import is_aa_sim, Capturing, normalize_sPRE, make_linear_combination_from_clusters
+from .functions import is_aa_sim, normalize_sPRE, make_linear_combination_from_clusters, Capturing
 import encodermap as em
-from encodermap.misc.clustering import gen_dummy_traj, rmsd_centroid_of_cluster
+from encodermap.misc.clustering import gen_dummy_traj, rmsd_centroid_of_cluster, _gen_dummy_traj_single
 from ..nmr_plot.nmr_plot import *
 import dateutil
 import pyemma
 import hdbscan
 from .parse_input_files.parse_input_files import get_observed_df, get_fast_exchangers, get_in_secondary
 from string import ascii_uppercase
+import cartopy.crs as ccrs
 from ..misc import get_iso_time
 
 ################################################################################
@@ -47,6 +50,181 @@ def ckpt_step(file):
         except Exception as e2:
             raise e2 from e1
     return 0
+
+
+def align_principal_axes_mdtraj(traj):
+    """Takes an mdtraj trajectory as input and aligns it with its principal axes.
+
+    Transformation is done in-place. So kiss your old coordinates goodbye.
+
+    Args:
+        traj: mdtraj.Trajectory with 1 frame.
+
+    Returns:
+        None
+
+    Raises:
+        NotImplementedError: If the traj has more than 1 frame.
+
+    Examples:
+        >>> traj = md.load_pdb('https://files.rcsb.org/view/5NL0.pdb')
+        >>> traj = traj.atom_slice(traj.top.select('chainid 0 to 9 or chainid 16'))
+        >>> traj.xyz[0][0]
+        [ 3.3407  5.9445 -3.326 ]
+        >>> align_principal_axes_mdtraj(traj)
+        >>> traj.xyz[0][0]
+        [ 0.73253864 -7.5465813  -0.2685707 ]
+
+    """
+    from .transformations import superimposition_matrix
+    if traj.n_frames != 1:
+        raise NotImplementedError("Currently only works with trajs with 1 frame.")
+    # get the moment of inertia tensor
+    inertia_tensor = md.compute_inertia_tensor(traj)
+    # the eigenvectors of thsi tensor are the principal axes
+    eigvals, eigvs = np.linalg.eig(inertia_tensor)
+    eigvs = eigvs[0]
+    # define the normals
+    normals = np.array([[0, 0, 1], [0, 1, 0], [1, 0, 0]])
+    # get a homogeneous transformation from these three points
+    trans_mat = superimposition_matrix(eigvs, normals)
+    # make our 3D points a list of quaternions
+    padded = np.pad(traj.xyz[0], ((0, 0), (0, 1)), mode='constant', constant_values=1)
+    # dot_multiplication of the transformation_matrix with the quaternions gives the new points
+    new_points = trans_mat.dot(padded.T).T[:,:3]
+    traj.xyz[0] = new_points
+
+
+def appendSphericalFrame(xyz):
+    """Appends the spherical coordiantes to an array of xyz.
+
+    Args:
+        xyz (np.ndarray): An array of shape (n, 3), where n is the number of
+            points.
+
+    r e [0, inf)
+    theta e [0, pi]
+    phi e [-pi, pi]
+
+    Returns:
+        np.ndarray: An array of shape (n, 6), where a[:, 3] is the radius as defined
+            by r = sqrt( x ** 2 + y **2 + z ** 2), a[:, 4] is the inclination as
+            defined by theta = arctan( sqrt( x ** 2 + y ** 2) / z )) and a[:, 5] is
+            the azimuth as defined by phi = arctan ( y / x)
+
+    """
+    ptsnew = np.hstack((xyz, np.zeros(xyz.shape)))
+    xy = xyz[:, 0] ** 2 + xyz[:, 1] ** 2
+    ptsnew[:, 3] = np.sqrt(xy + xyz[:, 2] ** 2)
+    ptsnew[:, 4] = np.arctan2(np.sqrt(xy), xyz[:, 2])  # for elevation angle defined from Z-axis down
+    # ptsnew[:,4] = np.arctan2(xyz[:,2], np.sqrt(xy)) # for elevation angle defined from XY-plane up
+    ptsnew[:, 5] = np.arctan2(xyz[:, 1], xyz[:, 0])
+    return ptsnew
+
+
+def appendSphericalTraj(xyz):
+    """Appends the spherical coordiantes to an array of xyz.
+
+    Args:
+        xyz (np.ndarray): An array of shape (n_frames, n_atoms, 3), where n is the number of
+            points.
+
+    r e [0, inf)
+    theta e [0, pi]
+    phi e [-pi, pi]
+
+    Returns:
+        np.ndarray: An array of shape (n_frames, n_atoms, 6), where a[:, :, 3] is the radius as defined
+            by r = sqrt( x ** 2 + y **2 + z ** 2), a[:, :, 4] is the inclination as
+            defined by theta = arctan( sqrt( x ** 2 + y ** 2) / z )) and a[:, :, 5] is
+            the azimuth as defined by phi = arctan ( y / x)
+
+    """
+    ptsnew = np.dstack((xyz, np.zeros(xyz.shape)))
+    xy = xyz[:, :, 0]**2 + xyz[:, :, 1]**2
+    ptsnew[:, :, 3] = np.sqrt(xy + xyz[:, :, 2]**2)
+    ptsnew[:, :, 4] = np.arctan2(np.sqrt(xy), xyz[:, :, 2]) # for elevation angle defined from Z-axis down
+    # ptsnew[:, :, 4] = np.arctan2(xyz[:, :, 2], np.sqrt(xy)) # for elevation angle defined from XY-plane up
+    ptsnew[:, :, 5] = np.arctan2(xyz[:, :, 1], xyz[:, :, 0])
+    return ptsnew
+
+def appendLonLatFrame(xyz):
+    """Appends longitute and latitude to an array of xyz coordinates.
+
+    Args:
+        xyz (np.ndarray): An array of shape (n, 3), where n is the number of points.
+
+    r e [0, inf]
+    lons e [-180, 180]
+    lats e [-90, 90]
+
+    The transformations form `appendSpherical_np` are taken, columns 4 and 5 are swapped.
+    and wrapped to the correct space.
+
+    Returns:
+        np.ndarray: An array of shape (n, 6), where a[:, 3] is the radius, a[:, 4] is the
+        longitude ranging from -90 to 90 deg with 0 deg being the euqator, a[:, 5] is
+        the latitudes ranging from -180 to 180 deg with 0 deg being the zero meridian.
+
+    """
+    new = appendSphericalFrame(xyz)
+    new[:, 4:] = np.rad2deg(new[:, 4:])
+    new[:, [4, 5]] = new[:, [5, 4]]
+    new[:, 5] -= 90.0
+    return new
+
+def appendLonLatTraj(xyz):
+    """Appends longitute and latitude to an array of xyz coordinates.
+
+    Args:
+        xyz (np.ndarray): An array of shape (n, 3), where n is the number of points.
+
+    r e [0, inf]
+    lons e [-180, 180]
+    lats e [-90, 90]
+
+    The transformations form `appendSpherical_np` are taken, columns 4 and 5 are swapped.
+    and wrapped to the correct space.
+
+    Returns:
+        np.ndarray: An array of shape (n, 6), where a[:, 3] is the radius, a[:, 4] is the
+        longitude ranging from -90 to 90 deg with 0 deg being the euqator, a[:, 5] is
+        the latitudes ranging from -180 to 180 deg with 0 deg being the zero meridian.
+
+    """
+    new = appendSphericalTraj(xyz)
+    new[:, :, 4:] = np.rad2deg(new[:, :, 4:])
+    new[:, :, [4, 5]] = new[:, :, [5, 4]]
+    new[:, 5] -= 90.0
+    return new
+
+def center_ref_and_load(overwrite=False):
+    centered_1UBQ = '/mnt/data/kevin/xplor_analysis_files/centered1UBQ.pdb'
+    if not os.path.isfile(centered_1UBQ) or overwrite:
+        traj = md.load_pdb('/home/kevin/1UBQ.pdb')
+        traj = traj.atom_slice(traj.top.select('protein'))
+        align_principal_axes_mdtraj(traj)
+        traj.center_coordinates()
+        traj.save_pdb(centered_1UBQ)
+    else:
+        traj = md.load(centered_1UBQ)
+    CA_indices = traj.top.select('name CA')
+    resnames = np.array([str(r) for r in traj.top.residues])
+    return traj, CA_indices, resnames
+
+def add_reference_to_map(ax, step=5):
+    traj, idx, labels = center_ref_and_load()
+    scatter = traj.xyz[0, idx]
+    scatter = appendLonLatFrame(scatter)
+    lons, lats = scatter[:, 4:].T
+    ax.set_global()
+    ax.gridlines()
+    ax.plot(lons, lats, marker='o', transform=ccrs.Geodetic())
+
+    for i, label in enumerate(labels):
+        if (i + 1) % step == 0 or i == 0:
+            ax.annotate(label, (lons[i], lats[i]), xycoords=ccrs.Geodetic()._as_mpl_transform(ax))
+    return ax
 
 
 ################################################################################
@@ -93,7 +271,8 @@ class EncodermapSPREAnalysis:
         """
         ow_dict = {'load_trajs': False, 'load_highd': False, 'train_encodermap': False,
                    'load_xplor_data': False, 'cluster': False, 'plot_lowd': False,
-                   'cluster_analysis': False, 'fitness_assessment': False}
+                   'cluster_analysis': False, 'fitness_assessment': False,
+                   'get_surface_coverage': False}
         ow_dict.update(overwrite_dict)
         self.load_trajs(overwrite=ow_dict['load_trajs'])
         self.load_highd(overwrite=ow_dict['load_highd'])
@@ -102,8 +281,16 @@ class EncodermapSPREAnalysis:
         self.cluster(overwrite=ow_dict['cluster'])
         self.cluster_analysis(overwrite=ow_dict['cluster_analysis'])
         self.fitness_assessment(overwrite=ow_dict['fitness_assessment'])
+        self.get_surface_coverage(overwrite=ow_dict['get_surface_coverage'])
 
-    def load_trajs(self, overwrite=False, with_cg=True):
+    def check_attr_all(self, attr_name):
+        for ubq_site in self.ubq_sites:
+            for _ in [self.trajs, self.cg_trajs, self.aa_trajs]:
+                if not hasattr(_[ubq_site], attr_name):
+                    return False
+        return True
+
+    def load_trajs(self, overwrite=False):
         if hasattr(self, 'trajs'):
             if not overwrite and bool(self.trajs):
                 print("Trajs already loaded")
@@ -140,12 +327,12 @@ class EncodermapSPREAnalysis:
                     self.cg_traj_files[ubq_site].append(traj_file)
                     self.cg_references[ubq_site].append(top_file)
 
-            self.aa_trajs[ubq_site] = em.Info_all(trajs = self.aa_traj_files[ubq_site],
-                                                  tops = self.aa_references[ubq_site],
+            self.aa_trajs[ubq_site] = em.Info_all(trajs=self.aa_traj_files[ubq_site],
+                                                  tops=self.aa_references[ubq_site],
                                                   basename_fn=lambda x: x.split('/')[-2],
                                                   common_str=[ubq_site, ubq_site.upper()])
-            self.cg_trajs[ubq_site] = em.Info_all(trajs = self.cg_traj_files[ubq_site],
-                                                  tops = self.cg_references[ubq_site],
+            self.cg_trajs[ubq_site] = em.Info_all(trajs=self.cg_traj_files[ubq_site],
+                                                  tops=self.cg_references[ubq_site],
                                                   basename_fn=lambda x: x.split('/')[-2],
                                                   common_str=[ubq_site])
             self.trajs[ubq_site] = (self.aa_trajs[ubq_site] + self.cg_trajs[ubq_site])
@@ -156,6 +343,10 @@ class EncodermapSPREAnalysis:
             self.aa_dists = {}
         if not hasattr(self, 'cg_dists') or overwrite:
             self.cg_dists = {}
+
+        if self.check_attr_all('highd') and not overwrite:
+            print("Highd already in all trajs")
+            return
 
         for i, ubq_site in enumerate(self.ubq_sites):
             aa_highd_file = os.path.join(self.analysis_dir, f'highd_rwmd_aa_{ubq_site}.npy')
@@ -210,6 +401,10 @@ class EncodermapSPREAnalysis:
                 print("Highd already loaded")
 
     def train_encodermap(self, overwrite=False):
+        if self.check_attr_all('lowd') and not overwrite:
+            print("Lowd already in all trajs")
+            return
+
         for i, ubq_site in enumerate(self.ubq_sites):
             train_path = os.path.join(self.analysis_dir, f'runs/{ubq_site}/production_run_tf2/')
             checkpoints = glob.glob(f'{train_path}*encoder')
@@ -250,6 +445,10 @@ class EncodermapSPREAnalysis:
 
     def load_xplor_data(self, overwrite=False,
                         csv='conect'):
+        if all([hasattr(self, _) for _ in ['df_obs', 'fast_exchangers', 'in_secondary', 'df_comp_norm', 'norm_factors']]) and not overwrite:
+            print("XPLOR data already loaded")
+            return
+
         if csv == 'conect':
             files = glob.glob(
                 '/home/kevin/projects/tobias_schneider/values_from_every_frame/from_package_with_conect/*.csv')
@@ -264,9 +463,6 @@ class EncodermapSPREAnalysis:
         if not 'ubq_site' in df_comp.keys():
             df_comp['ubq_site'] = df_comp['traj_file'].map(get_ubq_site)
         df_comp['ubq_site'] = df_comp['ubq_site'].str.lower()
-        if hasattr(self, 'df_comp_norm') and not overwrite:
-            print("XPLOR data already loaded")
-            return
         self.df_obs = get_observed_df(['k6', 'k29', 'k33'])
         self.fast_exchangers = get_fast_exchangers(['k6', 'k29', 'k33'])
         self.in_secondary = get_in_secondary(['k6', 'k29', 'k33'])
@@ -274,6 +470,10 @@ class EncodermapSPREAnalysis:
         self.norm_factors = normalize_sPRE(df_comp, self.df_obs, get_factors=True)
 
     def cluster(self, overwrite=False):
+        if self.check_attr_all('cluster_membership'):
+            print("Cluster Membership already in all trajs")
+            return
+
         for i, ubq_site in enumerate(self.ubq_sites):
             if not hasattr(self.trajs[ubq_site], 'cluster_membership') or overwrite:
                 aa_cluster_file = os.path.join(self.analysis_dir, f'cluster_membership_aa_{ubq_site}.npy')
@@ -692,7 +892,7 @@ class EncodermapSPREAnalysis:
 
         print(f"Saving image at {out_file}")
         plt.tight_layout()
-        plt.savefig(out_file)
+        plt.savefig(out_file, dpi=300)
         plt.savefig(out_file.replace('.png', '.pdf'))
 
     def fitness_assessment(self, overwrite=False):
@@ -754,16 +954,289 @@ class EncodermapSPREAnalysis:
 
             if not os.path.isfile(image_file) or overwrite:
                 plt.close('all')
+                # data = np.array(self.quality_factor_means[ubq_site])
+                fig, ax = plt.subplots()
                 for key, value in self.all_quality_factors[ubq_site].items():
                     self.quality_factor_means[ubq_site].append(np.mean(value))
-                data = np.array(self.quality_factor_means[ubq_site])
-                fig, ax = plt.subplots()
-                ax.plot(np.arange(len(data)), data)
+                ax.boxplot(self.all_quality_factors[ubq_site].values())
+                # ax.plot(np.arange(len(data)), data)
                 ax.set_title(f"Quality factor for n clusters for {ubq_site}")
                 ax.set_xlabel("Number of considered clusters")
                 ax.set_ylabel("Mean abs difference between observed and caluclated")
                 plt.savefig(image_file)
 
+    def get_surface_coverage(self, overwrite=False, overwrite_image=False):
+        for ubq_site in self.ubq_sites:
+            image_file = os.path.join(self.analysis_dir, f'surface_coverage_{ubq_site}.png')
+            polar_coordinates_aa_file = os.path.join(self.analysis_dir, f'polar_coordinates_aa_{ubq_site}.npy')
+            polar_coordinates_cg_file = os.path.join(self.analysis_dir, f'polar_coordinates_cg_{ubq_site}.npy')
+
+            ref, idx, labels = center_ref_and_load()
+
+            self.polar_coordinates_aa = {k: [[], []] for k in self.ubq_sites}
+            self.polar_coordinates_cg = {k: [[], []] for k in self.ubq_sites}
+
+            if not (os.path.isfile(polar_coordinates_aa_file) and os.path.isfile(polar_coordinates_cg_file)) or overwrite:
+                for i, traj in enumerate(self.trajs[ubq_site]):
+                    if i % 10 == 0:
+                        print(i)
+                    if any([a.name == 'BB' for a in traj.top.atoms]):
+                        traj = traj.traj.superpose(reference=ref, ref_atom_indices=idx, atom_indices=traj.top.select('name BB and resid >= 76'))
+                        dist_ind = traj.top.select('resid < 76')
+                        coords = appendLonLatTraj(traj.xyz)[:, dist_ind, 4:]
+                        self.polar_coordinates_cg[ubq_site][0].append(coords[:, :, 0])
+                        self.polar_coordinates_cg[ubq_site][1].append(coords[:, :, 1])
+                    else:
+                        traj = traj.traj.superpose(reference=ref, ref_atom_indices=idx, atom_indices=traj.top.select('name CA and resid >= 76'))
+                        dist_ind = traj.top.select('resid < 76')
+                        coords = appendLonLatTraj(traj.xyz)[:, dist_ind, 4:]
+                        self.polar_coordinates_aa[ubq_site][0].append(coords[:, :, 0])
+                        self.polar_coordinates_aa[ubq_site][1].append(coords[:, :, 1])
+
+                self.polar_coordinates_aa[ubq_site] = np.stack((np.vstack(self.polar_coordinates_aa[ubq_site][0]), np.vstack(self.polar_coordinates_aa[ubq_site][1])), axis=2)
+                self.polar_coordinates_cg[ubq_site] = np.stack((np.vstack(self.polar_coordinates_cg[ubq_site][0]), np.vstack(self.polar_coordinates_cg[ubq_site][1])), axis=2)
+                np.save(polar_coordinates_aa_file, self.polar_coordinates_aa[ubq_site])
+                np.save(polar_coordinates_cg_file, self.polar_coordinates_cg[ubq_site])
+            else:
+                self.polar_coordinates_aa[ubq_site] = np.load(polar_coordinates_aa_file)
+                self.polar_coordinates_cg[ubq_site] = np.load(polar_coordinates_cg_file)
+
+
+            if not os.path.isfile(image_file) or overwrite or overwrite_image:
+
+                plt.close('all')
+                fig, ax = plt.subplots(subplot_kw={'projection': ccrs.EckertIV()})
+                ax = add_reference_to_map(ax)
+
+                nbins = 200
+
+                x = np.concatenate([self.polar_coordinates_aa[:, :, 0].flatten(), self.polar_coordinates_cg[:, :, 0].flatten()])
+                y = np.concatenate([self.polar_coordinates_aa[:, :, 1].flatten(), self.polar_coordinates_cg[:, :, 1].flatten()])
+
+                H, xedges, yedges = np.histogram2d(x=x, y=y, bins=(nbins, int(nbins / 2)), range=[[-180, 180], [-90, 90]])
+                xcenters = np.mean(np.vstack([xedges[0:-1], xedges[1:]]), axis=0)
+                ycenters = np.mean(np.vstack([yedges[0:-1], yedges[1:]]), axis=0)
+                X, Y = np.meshgrid(xcenters, ycenters)
+
+
+                lon = np.linspace(-180, 180, nbins)
+                lat = np.linspace(-90, 90, int(nbins / 2))
+                lon2d, lat2d = np.meshgrid(lon, lat)
+
+
+                cmap = plt.cm.get_cmap('viridis').copy()
+                cmap.set_bad('w', 0.0)
+                H = np.ma.masked_where(H < 0.1, H)
+
+                ax.contourf(X, Y, H.T, transform=ccrs.PlateCarree())
+
+                plt.savefig(image_file)
+
+    def get_mean_tensor_of_inertia(self, overwrite=False, overwrite_image=False):
+
+        if not hasattr(self, 'inertia_tensors') or overwrite:
+            self.inertia_tensors = {k: [] for k in self.ubq_sites}
+            self.aa_inertia_tensors = {k: [] for k in self.ubq_sites}
+        else:
+            if set(self.inertia_tensors.keys()) != set(self.ubq_sites):
+                raise NotImplementedError()
+
+        for i, ubq_site in enumerate(self.ubq_sites):
+            inertia_tensors_file = os.path.join(self.analysis_dir, f'inertia_distribution_{ubq_site}.npy')
+            aa_inertia_tensors_file = os.path.join(self.analysis_dir, f'aa_inertia_distribution_{ubq_site}.npy')
+            image_file = os.path.join(self.analysis_dir, f'inertia_distribution_{ubq_site}.png')
+
+            ref, idx, labels = center_ref_and_load()
+            ref_aa = self.aa_trajs['k6'][0][0].traj.superpose(ref,
+                                                             atom_indices=self.aa_trajs[ubq_site][0][0].traj.top.select('name CA and resid >= 76'),
+                                                             ref_atom_indices=ref.top.select('name CA'))
+
+            if not os.path.isfile(inertia_tensors_file) or overwrite:
+                found_aa = False
+                found_cg = False
+                for j, traj in enumerate(self.trajs[ubq_site]):
+                    if j % 10 == 0:
+                        print(j)
+                    if not is_aa_sim(traj.traj_file):
+                        traj = traj.traj.superpose(reference=ref, ref_atom_indices=idx,
+                                                   atom_indices=traj.top.select('name BB and resid >= 76'))
+                        # found_cg = True
+                        # take the Ixx, Iyy, and Izz values
+                        tensor = md.compute_inertia_tensor(traj)
+                    else:
+                        traj = traj.traj.superpose(reference=ref, ref_atom_indices=idx,
+                                                   atom_indices=traj.top.select('name CA and resid >= 76'))
+                        # found_aa = True
+                        # take the Ixx, Iyy, and Izz values
+                        tensor = md.compute_inertia_tensor(traj)
+                        self.aa_inertia_tensors[ubq_site].append(tensor)
+                    self.inertia_tensors[ubq_site].append(tensor)
+                    if found_cg and found_aa:
+                        break
+                self.inertia_tensors[ubq_site] = np.vstack(self.inertia_tensors[ubq_site])
+                self.aa_inertia_tensors[ubq_site] = np.vstack(self.aa_inertia_tensors[ubq_site])
+                np.save(inertia_tensors_file, self.inertia_tensors[ubq_site])
+                np.save(aa_inertia_tensors_file, self.aa_inertia_tensors[ubq_site])
+            elif hasattr(self, 'inertia_tensors') and hasattr(self, 'aa_inertia_tensors'):
+                if len(self.inertia_tensors[ubq_site]) == self.trajs[ubq_site].n_frames:
+                    pass
+                else:
+                    raise Exception("Wrong number of tensors loaded.")
+            else:
+                print("Loading inertia tensors from file.")
+                self.inertia_tensors[ubq_site] = np.load(inertia_tensors_file)
+                self.aa_inertia_tensors[ubq_site] = np.load(aa_inertia_tensors_file)
+
+            assert len(self.inertia_tensors[ubq_site] == self.trajs[ubq_site].n_frames)
+            assert len(self.aa_inertia_tensors[ubq_site] == self.aa_trajs[ubq_site].n_frames)
+
+            mean = np.mean(self.aa_inertia_tensors['k6'], axis=0)
+            std = np.std(self.aa_inertia_tensors['k6'], axis=0)
+
+            lower = mean - std
+            upper = mean + std
+
+            where = np.logical_and(self.aa_inertia_tensors['k6'] >= lower, self.aa_inertia_tensors['k6'] <= upper)
+            where = np.all(where, axis=(1, 2))
+            print(np.unique(where, return_counts=True))
+            where = np.where(where)[0]
+            view, traj = _gen_dummy_traj_single(self.aa_trajs[ubq_site], where, max_frames=300, superpose=ref_aa, stack_atoms=False, align_string='name CA and resid >= 76')
+
+            tensor_analysis_outdir = os.path.join(self.analysis_dir, f'inertia_tensor_analysis/{ubq_site}/')
+            os.makedirs(tensor_analysis_outdir, exist_ok=True)
+            pdb_file = os.path.join(tensor_analysis_outdir, f'mean_structure_from_inertia.pdb')
+            xtc_file = os.path.join(tensor_analysis_outdir, f'mean_structure_from_inertia.xtc')
+
+            traj[0].save_pdb(pdb_file)
+            traj[1:].save_xtc(xtc_file)
+
+            raise Exception("STOP")
+
+            all_means = []
+            all_covars = []
+            all_weights = []
+            for ax, direction in zip([0, 1, 2], ['Ixx', 'Iyy', 'Izz']):
+
+                tensor_analysis_outdir = os.path.join(self.analysis_dir,
+                                                      f'inertia_tensor_analysis/{ubq_site}/{direction}')
+                os.makedirs(tensor_analysis_outdir, exist_ok=True)
+
+                data = np.expand_dims(self.inertia_tensors[ubq_site][:, ax], 1)
+                gmm = GMM(n_components=3, covariance_type='full').fit(data)
+                # kde = sklearn.neighbors.KernelDensity(kernel='gaussian', bandwidth=10000).fit(data)
+
+                means = gmm.means_.flatten()
+                colvars = gmm.covariances_.flatten()
+                weights = gmm.weights_.flatten()
+
+                # filter low weights
+                high_weights = weights > 0.15
+                weights = weights[high_weights]
+                colvars = colvars[high_weights]
+                means = means[high_weights]
+
+                # filter similar peaks
+                tolerance = 15000
+                while np.any(np.abs(means[:-1] - means[1:]) < tolerance):
+                    out = np.full(means.shape, True)
+                    for idx in range(len(means)):
+                        try:
+                            close = np.isclose(means, means[idx], atol=tolerance)
+                            close[idx] = False
+                            out &= ~close
+                            means = means[out]
+                            colvars = colvars[out]
+                            weights = weights[out]
+                        except (IndexError, ValueError):
+                            break
+
+                # iterate over the 'clusters'
+                for cluster_no, (cluster_mean, cluster_colvar) in enumerate(zip(means, colvars)):
+                    std = scipy_norm.std(cluster_mean, np.sqrt(cluster_colvar))
+                    std = np.array([cluster_mean - std, cluster_mean + std])
+                    where = np.logical_and(self.aa_inertia_tensors[ubq_site][:, ax] >= std[0], self.aa_inertia_tensors[ubq_site][:, ax] <= std[1])
+                    assert len(where) == self.aa_trajs[ubq_site].n_frames, print(len(where))
+                    where = np.where(where)[0]
+                    if where.size == 0:
+                        continue
+                    view, traj = _gen_dummy_traj_single(self.aa_trajs[ubq_site], where, max_frames=300, superpose=ref_aa, stack_atoms=False, align_string='name CA and resid >= 76')
+
+                    pdb_file = os.path.join(tensor_analysis_outdir, f'cluster_{cluster_no}_along_{direction}_axis.pdb')
+                    xtc_file = os.path.join(tensor_analysis_outdir, f'cluster_{cluster_no}_along_{direction}_axis.xtc')
+
+                    traj[0].save_pdb(pdb_file)
+                    traj[1:].save_xtc(xtc_file)
+
+                # append
+                all_means.append(means)
+                all_covars.append(colvars)
+                all_weights.append(weights)
+
+            # find structures that fit into the ranges
+
+
+            if not os.path.isfile(image_file) or overwrite or overwrite_image:
+                nbins = 100
+                H, (xedges, yedges, zedges) = np.histogramdd(self.inertia_tensors[ubq_site], bins=nbins)
+
+                xcenters = np.mean(np.vstack([xedges[0:-1], xedges[1:]]), axis=0)
+                ycenters = np.mean(np.vstack([yedges[0:-1], yedges[1:]]), axis=0)
+
+                X, Y = np.meshgrid(xcenters, ycenters)
+
+                plt.close('all')
+                fig = plt.figure()
+                ax = fig.add_subplot(221, projection='3d')
+                ax1 = fig.add_subplot(222)
+                ax2 = fig.add_subplot(223)
+                ax3 = fig.add_subplot(224)
+                # fig, ax = plt.subplots(subplot_kw={'projection': '3d'})
+
+                # ax.scatter(*analysis.inertia_tensors[::100].T, c='k', s=1, alpha=0.01)
+
+                ax.set_xlabel('x')
+                ax.set_ylabel('y')
+                ax.set_zlabel('z')
+
+                for ct in np.linspace(0, nbins, 20, dtype=int, endpoint=False):
+                    cmap = plt.cm.get_cmap('turbo').copy()
+                    cmap.set_bad('w', alpha=0.0)
+                    hist = np.ma.masked_where(H[:, :, ct] == 0, H[:, :, ct])
+                    cs = ax.contourf(X, Y, hist.T, zdir='z',
+                                     offset=zedges[ct],
+                                     levels=20,
+                                     cmap='turbo', alpha=0.5)
+                # divider = make_axes_locatable(ax)
+                # cax = divider.append_axes('right', size='2%', pad=0.05)
+                # plt.colorbar(cs, cax=cax)
+
+                ax.set_xlim(xedges[[0, -1]])
+                ax.set_ylim(yedges[[0, -1]])
+                ax.set_zlim(zedges[[0, -1]])
+
+                # plt.savefig('/mnt/data/kevin/xplor_analysis_files/inertia_distribution.png')
+                ax1.hist(self.inertia_tensors[ubq_site][:, 0], bins=xedges, density=True)
+                ax2.hist(self.inertia_tensors[ubq_site][:, 1], bins=yedges, density=True)
+                ax3.hist(self.inertia_tensors[ubq_site][:, 2], bins=zedges, density=True)
+
+                for ax, means, covars, weights in zip([ax1, ax2, ax3], all_means, all_covars, all_weights):
+                    x = np.linspace(0, ax.get_xlim()[1], 10000)
+                    for mean, covar, weight, color in zip(means, covars, weights, ['C1', 'C2', 'C3']):
+                        ax.plot(x, weight * scipy_norm.pdf(x, mean, np.sqrt(covar)).ravel(), c=color)
+
+                for pos, ax in zip(['x', 'y', 'z'], [ax1, ax2, ax3]):
+                    ax.set_xlabel(r"$I_{" f"{pos}{pos}"+ r"}$ in $amu \cdot nm^{2}$")
+                    ax.set_ylabel("Count")
+                    ax.set_title(f"Moment of inertia along {pos} axis")
+
+                plt.tight_layout()
+                plt.savefig(image_file)
+
+    def get_75_percent_convex_hull(self):
+        pass
+
+    def get_3d_histogram(self):
+        pass
 
     def load_specific_checkpoint(self, step=None):
         for i, ubq_site in enumerate(self.ubq_sites):
