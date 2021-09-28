@@ -15,6 +15,10 @@ import cartopy.crs as ccrs
 
 import sys, re, glob, os, itertools, pyemma, json, hdbscan, copy
 
+# %%
+xplor.misc.delete_old_csvs('/home/kevin/projects/tobias_schneider/values_from_every_frame/from_package_all/',
+                            suffix='_df_no_conect.csv', )
+
 # %% Get data from last working encodermap
 for root, dirs, files in os.walk("/home/kevin/projects/tobias_schneider/"):
     for file in files:
@@ -29,16 +33,19 @@ for root, dirs, files in os.walk("/home/kevin/projects/tobias_schneider/"):
 
 # %% develop an analysis function
 if not 'analysis' in globals():
+    analysis = xplor.functions.EncodermapSPREAnalysis(['k6', 'k29', 'k33'])
     # analysis = xplor.functions.EncodermapSPREAnalysis(['k6'])
-    analysis = xplor.functions.EncodermapSPREAnalysis(['k29'])
+    # analysis = xplor.functions.EncodermapSPREAnalysis(['k29'])
     # analysis = xplor.functions.EncodermapSPREAnalysis(['k33'])
-analysis.analyze()
+# analysis.analyze()
 # analysis.load_xplor_data(overwrite=True)
 # analysis.cluster_analysis()
 # analysis.plot_cluster(0, 'k6', overwrite=True)
 # analysis.fitness_assessment(overwrite=True)
 # analysis.get_surface_coverage(overwrite_image=True)
-# analysis.get_mean_tensor_of_inertia(overwrite=False)
+# analysis.get_mean_tensor_of_inertia(overwrite=True)
+# analysis.distance_vs_pseudo_torsion(overwrite_image=True)
+# analysis.cluster_pseudo_torsion(overwrite_struct_files=True)
 
 # %% Develop inertia tensors
 mean = np.mean(analysis.inertia_tensors['k6'], axis=0)

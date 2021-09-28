@@ -20,6 +20,7 @@ from .functions import is_aa_sim, normalize_sPRE, make_linear_combination_from_c
 import encodermap as em
 from encodermap.misc.clustering import gen_dummy_traj, rmsd_centroid_of_cluster, _gen_dummy_traj_single
 from ..nmr_plot.nmr_plot import *
+from ..nmr_plot.nmr_plot import plot_line_data
 import dateutil
 import pyemma
 import hdbscan
@@ -39,6 +40,7 @@ __all__ = ['EncodermapSPREAnalysis']
 ################################################################################
 # Functions
 ################################################################################
+
 
 def ckpt_step(file):
     file = os.path.basename(file).split('.')[0].split('_')[-1]
@@ -148,6 +150,7 @@ def appendSphericalTraj(xyz):
     ptsnew[:, :, 5] = np.arctan2(xyz[:, :, 1], xyz[:, :, 0])
     return ptsnew
 
+
 def appendLonLatFrame(xyz):
     """Appends longitute and latitude to an array of xyz coordinates.
 
@@ -172,6 +175,7 @@ def appendLonLatFrame(xyz):
     new[:, [4, 5]] = new[:, [5, 4]]
     new[:, 5] -= 90.0
     return new
+
 
 def appendLonLatTraj(xyz):
     """Appends longitute and latitude to an array of xyz coordinates.
@@ -198,6 +202,7 @@ def appendLonLatTraj(xyz):
     new[:, 5] -= 90.0
     return new
 
+
 def center_ref_and_load(overwrite=False):
     centered_1UBQ = '/mnt/data/kevin/xplor_analysis_files/centered1UBQ.pdb'
     if not os.path.isfile(centered_1UBQ) or overwrite:
@@ -212,6 +217,7 @@ def center_ref_and_load(overwrite=False):
     resnames = np.array([str(r) for r in traj.top.residues])
     return traj, CA_indices, resnames
 
+
 def add_reference_to_map(ax, step=5):
     traj, idx, labels = center_ref_and_load()
     scatter = traj.xyz[0, idx]
@@ -225,6 +231,60 @@ def add_reference_to_map(ax, step=5):
         if (i + 1) % step == 0 or i == 0:
             ax.annotate(label, (lons[i], lats[i]), xycoords=ccrs.Geodetic()._as_mpl_transform(ax))
     return ax
+
+
+def new_dihedral(p):
+    """Praxeolitic formula
+    1 sqrt, 1 cross product.
+
+    From: https://stackoverflow.com/questions/20305272/dihedral-torsion-angle-from-four-points-in-cartesian-coordinates-in-python
+    """
+    p0 = p[0]
+    p1 = p[1]
+    p2 = p[2]
+    p3 = p[3]
+
+    b0 = -1.0*(p1 - p0)
+    b1 = p2 - p1
+    b2 = p3 - p2
+
+    # normalize b1 so that it does not influence magnitude of vector
+    # rejections that come next
+    b1 /= np.linalg.norm(b1)
+
+    # vector rejections
+    # v = projection of b0 onto plane perpendicular to b1
+    #   = b0 minus component that aligns with b1
+    # w = projection of b2 onto plane perpendicular to b1
+    #   = b2 minus component that aligns with b1
+    v = b0 - np.dot(b0, b1)*b1
+    w = b2 - np.dot(b2, b1)*b1
+
+    # angle between v and w in a plane is the torsion angle
+    # v and w may not be normalized but that's fine since tan is y/x
+    x = np.dot(v, w)
+    y = np.dot(np.cross(b1, v), w)
+    return np.degrees(np.arctan2(y, x))
+
+
+def _compute_n_dihedrals(pos, out=None):
+    p0 = pos[:, 0]
+    p1 = pos[:, 1]
+    p2 = pos[:, 2]
+    p3 = pos[:, 3]
+
+    b1 = -1.0 * (p1 - p0)
+    b2 = p2 - p1
+    b3 = p3 - p2
+
+    c1 = np.cross(b2, b3)
+    c2 = np.cross(b1, b2)
+
+    p1 = (b1 * c1).sum(-1)
+    p1 *= (b2 * b2).sum(-1) ** 0.5
+    p2 = (c1 * c2).sum(-1)
+
+    return np.arctan2(p1, p2, out)
 
 
 ################################################################################
@@ -272,7 +332,8 @@ class EncodermapSPREAnalysis:
         ow_dict = {'load_trajs': False, 'load_highd': False, 'train_encodermap': False,
                    'load_xplor_data': False, 'cluster': False, 'plot_lowd': False,
                    'cluster_analysis': False, 'fitness_assessment': False,
-                   'get_surface_coverage': False}
+                   'get_surface_coverage': False, 'distance_vs_pseudo_torsion': False,
+                   'cluster_pseudo_torsion': False}
         ow_dict.update(overwrite_dict)
         self.load_trajs(overwrite=ow_dict['load_trajs'])
         self.load_highd(overwrite=ow_dict['load_highd'])
@@ -282,6 +343,8 @@ class EncodermapSPREAnalysis:
         self.cluster_analysis(overwrite=ow_dict['cluster_analysis'])
         self.fitness_assessment(overwrite=ow_dict['fitness_assessment'])
         self.get_surface_coverage(overwrite=ow_dict['get_surface_coverage'])
+        self.distance_vs_pseudo_torsion(overwrite=ow_dict['distance_vs_pseudo_torsion'])
+        self.cluster_pseudo_torsion(overwrite=ow_dict['cluster_pseudo_torsion'])
 
     def check_attr_all(self, attr_name):
         for ubq_site in self.ubq_sites:
@@ -546,6 +609,8 @@ class EncodermapSPREAnalysis:
                 rmsd_centroid_index_file = os.path.join(cluster_analysis_outdir, f'{ubq_site}_cluster_{cluster_num}_rmsd_centroid.npy')
                 if not os.path.isfile(rmsd_centroid_file) or overwrite:
                     max_frames = 500
+                    if not cluster_num in np.unique(self.aa_trajs[ubq_site].cluster_membership):
+                        continue
                     view, dummy_traj = gen_dummy_traj(self.aa_trajs[ubq_site], cluster_num, max_frames=max_frames, superpose=True)
                     where = np.where(self.aa_trajs[ubq_site].cluster_membership == cluster_num)[0]
                     idx = np.round(np.linspace(0, len(where) - 1, max_frames)).astype(int)
@@ -898,7 +963,7 @@ class EncodermapSPREAnalysis:
     def fitness_assessment(self, overwrite=False):
         json_savefile = os.path.join(self.analysis_dir, f'quality_factors.json')
         self.quality_factor_means = {ubq_site: [] for ubq_site in self.ubq_sites}
-        if not os.path.isfile(json_savefile):
+        if not os.path.isfile(json_savefile) or overwrite:
             self.all_quality_factors = {ubq_site: {} for ubq_site in self.ubq_sites}
         else:
             with open(json_savefile, 'r') as f:
@@ -924,33 +989,43 @@ class EncodermapSPREAnalysis:
             df['cluster_membership'] = cluster_membership_sPRE
 
             # calculcate the per-cluster per-residue median
-            cluster_means = []
-            for cluster_num in np.unique((df['cluster_membership'])):
+            cluster_means = {}
+            allowed_clusters = np.unique(self.aa_trajs[ubq_site].cluster_membership)[1:]
+            for cluster_num in allowed_clusters:
                 if cluster_num == -1:
                     continue
                 mean = np.median(df[sPRE_ind][df['cluster_membership'] == cluster_num], axis=0)
-                cluster_means.append(mean)
-            cluster_means = np.vstack(cluster_means)
+                cluster_means[cluster_num] = mean
+            # cluster_means = np.vstack(cluster_means)
 
             fast_exchange = self.fast_exchangers[ubq_site].values
 
-            n_clust = self.trajs[ubq_site].cluster_membership.max() + 1
+            # n_clust = self.trajs[ubq_site].cluster_membership.max() + 1
+            n_clust = len(allowed_clusters)
+            print('checking clusters for ', ubq_site, np.unique(self.aa_trajs[ubq_site].cluster_membership), n_clust)
             for no_of_considered_clusters in range(2, n_clust + 1):
-                combinations = itertools.combinations(range(n_clust), no_of_considered_clusters)
+                print(f'considering {no_of_considered_clusters} clusters')
+                combinations = itertools.combinations(allowed_clusters, no_of_considered_clusters)
                 if str(no_of_considered_clusters) in self.all_quality_factors[ubq_site] and not overwrite:
                     print(f"{no_of_considered_clusters} already in json")
                     continue
                 else:
                     self.all_quality_factors[ubq_site][str(no_of_considered_clusters)] = []
-                for combination in combinations:
+                for i, combination in enumerate(combinations):
                     combination = np.asarray(combination)
-                    solv = scipy.optimize.nnls(cluster_means[combination].T[~fast_exchange], obs[~fast_exchange])[0]
-                    result = np.sum(solv * cluster_means[combination].T, 1)
+                    if i == 0:
+                        print(f"First combination: {combination}")
+                    if np.any([np.isnan(cluster_means[c]) for c in combination]):
+                        print(f"Cluster in combination {combination} does not occur in aa.")
+                        continue
+                    solv = scipy.optimize.nnls(np.vstack([cluster_means[c] for c in combination]).T[~fast_exchange], obs[~fast_exchange])[0]
+                    result = np.sum(solv * np.vstack([cluster_means[c] for c in combination]).T, 1)
                     diff = float(np.mean(np.abs(result[~fast_exchange] - obs[~fast_exchange])))
                     self.all_quality_factors[ubq_site][str(no_of_considered_clusters)].append(diff)
-                print("Saving json")
-                with open(json_savefile, 'w') as f:
-                    json.dump(self.all_quality_factors, f)
+                    with open(json_savefile, 'w') as f:
+                        json.dump(self.all_quality_factors, f)
+                else:
+                    print(f"Last combination: {combination}")
 
             if not os.path.isfile(image_file) or overwrite:
                 plt.close('all')
@@ -966,40 +1041,43 @@ class EncodermapSPREAnalysis:
                 plt.savefig(image_file)
 
     def get_surface_coverage(self, overwrite=False, overwrite_image=False):
-        for ubq_site in self.ubq_sites:
-            image_file = os.path.join(self.analysis_dir, f'surface_coverage_{ubq_site}.png')
-            polar_coordinates_aa_file = os.path.join(self.analysis_dir, f'polar_coordinates_aa_{ubq_site}.npy')
-            polar_coordinates_cg_file = os.path.join(self.analysis_dir, f'polar_coordinates_cg_{ubq_site}.npy')
-
-            ref, idx, labels = center_ref_and_load()
-
+        if not (hasattr(self, 'polar_coordinates_aa') or hasattr(self, 'polar_coordinates_cg')) or overwrite:
             self.polar_coordinates_aa = {k: [[], []] for k in self.ubq_sites}
             self.polar_coordinates_cg = {k: [[], []] for k in self.ubq_sites}
+        for ubq_site in self.ubq_sites:
+            if self.polar_coordinates_aa[ubq_site] == [[], []] or overwrite:
+                image_file = os.path.join(self.analysis_dir, f'surface_coverage_{ubq_site}.png')
+                polar_coordinates_aa_file = os.path.join(self.analysis_dir, f'polar_coordinates_aa_{ubq_site}.npy')
+                polar_coordinates_cg_file = os.path.join(self.analysis_dir, f'polar_coordinates_cg_{ubq_site}.npy')
 
-            if not (os.path.isfile(polar_coordinates_aa_file) and os.path.isfile(polar_coordinates_cg_file)) or overwrite:
-                for i, traj in enumerate(self.trajs[ubq_site]):
-                    if i % 10 == 0:
-                        print(i)
-                    if any([a.name == 'BB' for a in traj.top.atoms]):
-                        traj = traj.traj.superpose(reference=ref, ref_atom_indices=idx, atom_indices=traj.top.select('name BB and resid >= 76'))
-                        dist_ind = traj.top.select('resid < 76')
-                        coords = appendLonLatTraj(traj.xyz)[:, dist_ind, 4:]
-                        self.polar_coordinates_cg[ubq_site][0].append(coords[:, :, 0])
-                        self.polar_coordinates_cg[ubq_site][1].append(coords[:, :, 1])
-                    else:
-                        traj = traj.traj.superpose(reference=ref, ref_atom_indices=idx, atom_indices=traj.top.select('name CA and resid >= 76'))
-                        dist_ind = traj.top.select('resid < 76')
-                        coords = appendLonLatTraj(traj.xyz)[:, dist_ind, 4:]
-                        self.polar_coordinates_aa[ubq_site][0].append(coords[:, :, 0])
-                        self.polar_coordinates_aa[ubq_site][1].append(coords[:, :, 1])
+                ref, idx, labels = center_ref_and_load()
 
-                self.polar_coordinates_aa[ubq_site] = np.stack((np.vstack(self.polar_coordinates_aa[ubq_site][0]), np.vstack(self.polar_coordinates_aa[ubq_site][1])), axis=2)
-                self.polar_coordinates_cg[ubq_site] = np.stack((np.vstack(self.polar_coordinates_cg[ubq_site][0]), np.vstack(self.polar_coordinates_cg[ubq_site][1])), axis=2)
-                np.save(polar_coordinates_aa_file, self.polar_coordinates_aa[ubq_site])
-                np.save(polar_coordinates_cg_file, self.polar_coordinates_cg[ubq_site])
+                if not (os.path.isfile(polar_coordinates_aa_file) and os.path.isfile(polar_coordinates_cg_file)) or overwrite:
+                    for i, traj in enumerate(self.trajs[ubq_site]):
+                        if i % 10 == 0:
+                            print(i)
+                        if any([a.name == 'BB' for a in traj.top.atoms]):
+                            traj = traj.traj.superpose(reference=ref, ref_atom_indices=idx, atom_indices=traj.top.select('name BB and resid >= 76'))
+                            dist_ind = traj.top.select('resid < 76')
+                            coords = appendLonLatTraj(traj.xyz)[:, dist_ind, 4:]
+                            self.polar_coordinates_cg[ubq_site][0].append(coords[:, :, 0])
+                            self.polar_coordinates_cg[ubq_site][1].append(coords[:, :, 1])
+                        else:
+                            traj = traj.traj.superpose(reference=ref, ref_atom_indices=idx, atom_indices=traj.top.select('name CA and resid >= 76'))
+                            dist_ind = traj.top.select('resid < 76')
+                            coords = appendLonLatTraj(traj.xyz)[:, dist_ind, 4:]
+                            self.polar_coordinates_aa[ubq_site][0].append(coords[:, :, 0])
+                            self.polar_coordinates_aa[ubq_site][1].append(coords[:, :, 1])
+
+                    self.polar_coordinates_aa[ubq_site] = np.stack((np.vstack(self.polar_coordinates_aa[ubq_site][0]), np.vstack(self.polar_coordinates_aa[ubq_site][1])), axis=2)
+                    self.polar_coordinates_cg[ubq_site] = np.stack((np.vstack(self.polar_coordinates_cg[ubq_site][0]), np.vstack(self.polar_coordinates_cg[ubq_site][1])), axis=2)
+                    np.save(polar_coordinates_aa_file, self.polar_coordinates_aa[ubq_site])
+                    np.save(polar_coordinates_cg_file, self.polar_coordinates_cg[ubq_site])
+                else:
+                    self.polar_coordinates_aa[ubq_site] = np.load(polar_coordinates_aa_file)
+                    self.polar_coordinates_cg[ubq_site] = np.load(polar_coordinates_cg_file)
             else:
-                self.polar_coordinates_aa[ubq_site] = np.load(polar_coordinates_aa_file)
-                self.polar_coordinates_cg[ubq_site] = np.load(polar_coordinates_cg_file)
+                pass
 
 
             if not os.path.isfile(image_file) or overwrite or overwrite_image:
@@ -1010,8 +1088,8 @@ class EncodermapSPREAnalysis:
 
                 nbins = 200
 
-                x = np.concatenate([self.polar_coordinates_aa[:, :, 0].flatten(), self.polar_coordinates_cg[:, :, 0].flatten()])
-                y = np.concatenate([self.polar_coordinates_aa[:, :, 1].flatten(), self.polar_coordinates_cg[:, :, 1].flatten()])
+                x = np.concatenate([self.polar_coordinates_aa[ubq_site][:, :, 0].flatten(), self.polar_coordinates_cg[ubq_site][:, :, 0].flatten()])
+                y = np.concatenate([self.polar_coordinates_aa[ubq_site][:, :, 1].flatten(), self.polar_coordinates_cg[ubq_site][:, :, 1].flatten()])
 
                 H, xedges, yedges = np.histogram2d(x=x, y=y, bins=(nbins, int(nbins / 2)), range=[[-180, 180], [-90, 90]])
                 xcenters = np.mean(np.vstack([xedges[0:-1], xedges[1:]]), axis=0)
@@ -1032,7 +1110,8 @@ class EncodermapSPREAnalysis:
 
                 plt.savefig(image_file)
 
-    def get_mean_tensor_of_inertia(self, overwrite=False, overwrite_image=False):
+    def get_mean_tensor_of_inertia(self, overwrite=False, overwrite_image=False,
+                                   with_Ixx_y_Izz_analysis=False):
 
         if not hasattr(self, 'inertia_tensors') or overwrite:
             self.inertia_tensors = {k: [] for k in self.ubq_sites}
@@ -1090,13 +1169,13 @@ class EncodermapSPREAnalysis:
             assert len(self.inertia_tensors[ubq_site] == self.trajs[ubq_site].n_frames)
             assert len(self.aa_inertia_tensors[ubq_site] == self.aa_trajs[ubq_site].n_frames)
 
-            mean = np.mean(self.aa_inertia_tensors['k6'], axis=0)
-            std = np.std(self.aa_inertia_tensors['k6'], axis=0)
+            mean = np.mean(self.aa_inertia_tensors[ubq_site], axis=0)
+            std = np.std(self.aa_inertia_tensors[ubq_site], axis=0)
 
-            lower = mean - std
-            upper = mean + std
+            lower = mean - 0.75 * std
+            upper = mean + 0.75 * std
 
-            where = np.logical_and(self.aa_inertia_tensors['k6'] >= lower, self.aa_inertia_tensors['k6'] <= upper)
+            where = np.logical_and(self.aa_inertia_tensors[ubq_site] >= lower, self.aa_inertia_tensors[ubq_site] <= upper)
             where = np.all(where, axis=(1, 2))
             print(np.unique(where, return_counts=True))
             where = np.where(where)[0]
@@ -1110,127 +1189,294 @@ class EncodermapSPREAnalysis:
             traj[0].save_pdb(pdb_file)
             traj[1:].save_xtc(xtc_file)
 
-            raise Exception("STOP")
+            if with_Ixx_y_Izz_analysis:
 
-            all_means = []
-            all_covars = []
-            all_weights = []
-            for ax, direction in zip([0, 1, 2], ['Ixx', 'Iyy', 'Izz']):
+                all_means = []
+                all_covars = []
+                all_weights = []
+                for ax, direction in zip([0, 1, 2], ['Ixx', 'Iyy', 'Izz']):
 
-                tensor_analysis_outdir = os.path.join(self.analysis_dir,
-                                                      f'inertia_tensor_analysis/{ubq_site}/{direction}')
-                os.makedirs(tensor_analysis_outdir, exist_ok=True)
+                    tensor_analysis_outdir = os.path.join(self.analysis_dir,
+                                                          f'inertia_tensor_analysis/{ubq_site}/{direction}')
+                    os.makedirs(tensor_analysis_outdir, exist_ok=True)
 
-                data = np.expand_dims(self.inertia_tensors[ubq_site][:, ax], 1)
-                gmm = GMM(n_components=3, covariance_type='full').fit(data)
-                # kde = sklearn.neighbors.KernelDensity(kernel='gaussian', bandwidth=10000).fit(data)
+                    data = np.expand_dims(self.inertia_tensors[ubq_site][:, ax], 1)
+                    gmm = GMM(n_components=3, covariance_type='full').fit(data)
+                    # kde = sklearn.neighbors.KernelDensity(kernel='gaussian', bandwidth=10000).fit(data)
 
-                means = gmm.means_.flatten()
-                colvars = gmm.covariances_.flatten()
-                weights = gmm.weights_.flatten()
+                    means = gmm.means_.flatten()
+                    colvars = gmm.covariances_.flatten()
+                    weights = gmm.weights_.flatten()
 
-                # filter low weights
-                high_weights = weights > 0.15
-                weights = weights[high_weights]
-                colvars = colvars[high_weights]
-                means = means[high_weights]
+                    # filter low weights
+                    high_weights = weights > 0.15
+                    weights = weights[high_weights]
+                    colvars = colvars[high_weights]
+                    means = means[high_weights]
 
-                # filter similar peaks
-                tolerance = 15000
-                while np.any(np.abs(means[:-1] - means[1:]) < tolerance):
-                    out = np.full(means.shape, True)
-                    for idx in range(len(means)):
-                        try:
-                            close = np.isclose(means, means[idx], atol=tolerance)
-                            close[idx] = False
-                            out &= ~close
-                            means = means[out]
-                            colvars = colvars[out]
-                            weights = weights[out]
-                        except (IndexError, ValueError):
-                            break
+                    # filter similar peaks
+                    tolerance = 15000
+                    while np.any(np.abs(means[:-1] - means[1:]) < tolerance):
+                        out = np.full(means.shape, True)
+                        for idx in range(len(means)):
+                            try:
+                                close = np.isclose(means, means[idx], atol=tolerance)
+                                close[idx] = False
+                                out &= ~close
+                                means = means[out]
+                                colvars = colvars[out]
+                                weights = weights[out]
+                            except (IndexError, ValueError):
+                                break
 
-                # iterate over the 'clusters'
-                for cluster_no, (cluster_mean, cluster_colvar) in enumerate(zip(means, colvars)):
-                    std = scipy_norm.std(cluster_mean, np.sqrt(cluster_colvar))
-                    std = np.array([cluster_mean - std, cluster_mean + std])
-                    where = np.logical_and(self.aa_inertia_tensors[ubq_site][:, ax] >= std[0], self.aa_inertia_tensors[ubq_site][:, ax] <= std[1])
-                    assert len(where) == self.aa_trajs[ubq_site].n_frames, print(len(where))
-                    where = np.where(where)[0]
-                    if where.size == 0:
-                        continue
-                    view, traj = _gen_dummy_traj_single(self.aa_trajs[ubq_site], where, max_frames=300, superpose=ref_aa, stack_atoms=False, align_string='name CA and resid >= 76')
+                    # iterate over the 'clusters'
+                    for cluster_no, (cluster_mean, cluster_colvar) in enumerate(zip(means, colvars)):
+                        std = scipy_norm.std(cluster_mean, np.sqrt(cluster_colvar))
+                        std = np.array([cluster_mean - std, cluster_mean + std])
+                        where = np.logical_and(self.aa_inertia_tensors[ubq_site][:, ax] >= std[0], self.aa_inertia_tensors[ubq_site][:, ax] <= std[1])
+                        assert len(where) == self.aa_trajs[ubq_site].n_frames, print(len(where))
+                        where = np.where(where)[0]
+                        if where.size == 0:
+                            continue
+                        view, traj = _gen_dummy_traj_single(self.aa_trajs[ubq_site], where, max_frames=300, superpose=ref_aa, stack_atoms=False, align_string='name CA and resid >= 76')
 
-                    pdb_file = os.path.join(tensor_analysis_outdir, f'cluster_{cluster_no}_along_{direction}_axis.pdb')
-                    xtc_file = os.path.join(tensor_analysis_outdir, f'cluster_{cluster_no}_along_{direction}_axis.xtc')
+                        pdb_file = os.path.join(tensor_analysis_outdir, f'cluster_{cluster_no}_along_{direction}_axis.pdb')
+                        xtc_file = os.path.join(tensor_analysis_outdir, f'cluster_{cluster_no}_along_{direction}_axis.xtc')
 
-                    traj[0].save_pdb(pdb_file)
-                    traj[1:].save_xtc(xtc_file)
+                        traj[0].save_pdb(pdb_file)
+                        traj[1:].save_xtc(xtc_file)
 
-                # append
-                all_means.append(means)
-                all_covars.append(colvars)
-                all_weights.append(weights)
+                    # append
+                    all_means.append(means)
+                    all_covars.append(colvars)
+                    all_weights.append(weights)
 
-            # find structures that fit into the ranges
+                # find structures that fit into the ranges
+                if not os.path.isfile(image_file) or overwrite or overwrite_image:
+                    nbins = 100
+                    H, (xedges, yedges, zedges) = np.histogramdd(self.inertia_tensors[ubq_site], bins=nbins)
 
+                    xcenters = np.mean(np.vstack([xedges[0:-1], xedges[1:]]), axis=0)
+                    ycenters = np.mean(np.vstack([yedges[0:-1], yedges[1:]]), axis=0)
 
+                    X, Y = np.meshgrid(xcenters, ycenters)
+
+                    plt.close('all')
+                    fig = plt.figure()
+                    ax = fig.add_subplot(221, projection='3d')
+                    ax1 = fig.add_subplot(222)
+                    ax2 = fig.add_subplot(223)
+                    ax3 = fig.add_subplot(224)
+                    # fig, ax = plt.subplots(subplot_kw={'projection': '3d'})
+
+                    # ax.scatter(*analysis.inertia_tensors[::100].T, c='k', s=1, alpha=0.01)
+
+                    ax.set_xlabel('x')
+                    ax.set_ylabel('y')
+                    ax.set_zlabel('z')
+
+                    for ct in np.linspace(0, nbins, 20, dtype=int, endpoint=False):
+                        cmap = plt.cm.get_cmap('turbo').copy()
+                        cmap.set_bad('w', alpha=0.0)
+                        hist = np.ma.masked_where(H[:, :, ct] == 0, H[:, :, ct])
+                        cs = ax.contourf(X, Y, hist.T, zdir='z',
+                                         offset=zedges[ct],
+                                         levels=20,
+                                         cmap='turbo', alpha=0.5)
+                    # divider = make_axes_locatable(ax)
+                    # cax = divider.append_axes('right', size='2%', pad=0.05)
+                    # plt.colorbar(cs, cax=cax)
+
+                    ax.set_xlim(xedges[[0, -1]])
+                    ax.set_ylim(yedges[[0, -1]])
+                    ax.set_zlim(zedges[[0, -1]])
+
+                    # plt.savefig('/mnt/data/kevin/xplor_analysis_files/inertia_distribution.png')
+                    ax1.hist(self.inertia_tensors[ubq_site][:, 0], bins=xedges, density=True)
+                    ax2.hist(self.inertia_tensors[ubq_site][:, 1], bins=yedges, density=True)
+                    ax3.hist(self.inertia_tensors[ubq_site][:, 2], bins=zedges, density=True)
+
+                    for ax, means, covars, weights in zip([ax1, ax2, ax3], all_means, all_covars, all_weights):
+                        x = np.linspace(0, ax.get_xlim()[1], 10000)
+                        for mean, covar, weight, color in zip(means, covars, weights, ['C1', 'C2', 'C3']):
+                            ax.plot(x, weight * scipy_norm.pdf(x, mean, np.sqrt(covar)).ravel(), c=color)
+
+                    for pos, ax in zip(['x', 'y', 'z'], [ax1, ax2, ax3]):
+                        ax.set_xlabel(r"$I_{" f"{pos}{pos}"+ r"}$ in $amu \cdot nm^{2}$")
+                        ax.set_ylabel("Count")
+                        ax.set_title(f"Moment of inertia along {pos} axis")
+
+                    plt.tight_layout()
+                    plt.savefig(image_file)
+
+    def distance_vs_pseudo_torsion(self, overwrite=False, overwrite_image=False):
+        if self.check_attr_all('pseudo_dihedral') and not overwrite:
+            print("Pseudo dihedral already in all trajs")
+        else:
+            for i, ubq_site in enumerate(self.ubq_sites):
+                dihedrals_file = os.path.join(self.analysis_dir, f'pseudo_dihedrals_{ubq_site}.npy')
+                dists_file = os.path.join(self.analysis_dir, f'cog_dists_{ubq_site}.npy')
+                if not os.path.isfile(dihedrals_file) or not os.path.isfile(dists_file) or overwrite:
+
+                    dihedrals = []
+                    dists = []
+
+                    aa_ca_indices = self.aa_trajs[ubq_site][0].top.select('(resname LYQ and name CA) or (resname GLQ and name CA)')
+                    aa_subunit_prox_indices = self.aa_trajs[ubq_site][0].top.select('resid >= 76')
+                    aa_subunit_dist_indices = self.aa_trajs[ubq_site][0].top.select('resid < 76')
+
+                    cg_ca_indices = self.cg_trajs[ubq_site][0].top.select('(resname LYQ and name BB) or (resname GLQ and name BB)')
+                    cg_subunit_prox_indices = self.cg_trajs[ubq_site][0].top.select('resid >= 76')
+                    cg_subunit_dist_indices = self.cg_trajs[ubq_site][0].top.select('resid < 76')
+
+                    for j, traj in enumerate(self.trajs[ubq_site]):
+                        if j % 20 == 0:
+                            print(f"{j} of {self.trajs[ubq_site].n_trajs}")
+                        if is_aa_sim(traj.traj_file):
+                            ca_indices = aa_ca_indices
+                            prox_indices = aa_subunit_prox_indices
+                            dist_indices = aa_subunit_dist_indices
+                        else:
+                            ca_indices = cg_ca_indices
+                            prox_indices = cg_subunit_prox_indices
+                            dist_indices = cg_subunit_dist_indices
+                        pos = np.empty((traj.n_frames, 4, 3))
+                        pos[:, 0] = np.mean(traj.xyz[:, prox_indices], axis=1)
+                        pos[:, 1] = traj.xyz[:, ca_indices[0]]
+                        pos[:, 2] = traj.xyz[:, ca_indices[1]]
+                        pos[:, 3] = np.mean(traj.xyz[:, dist_indices], axis=1)
+
+                        for p in pos:
+                            dihedrals.append(new_dihedral(p))
+                        dists.extend(np.linalg.norm(pos[:, 2] - pos[:, 1], axis=1))
+
+                    dihedrals = np.asarray(dihedrals)
+                    dists = np.asarray(dists)
+
+                    np.save(dihedrals_file, dihedrals)
+                    np.save(dists_file, dists)
+
+                else:
+                    dihedrals = np.load(dihedrals_file)
+                    dists = np.load(dists_file)
+
+                aa_indices = np.arange(self.aa_trajs[ubq_site].n_frames)
+                cg_indices = np.arange(self.aa_trajs[ubq_site].n_frames, self.aa_trajs[ubq_site].n_frames + self.cg_trajs[ubq_site].n_frames)
+                self.aa_trajs[ubq_site].load_CVs(dihedrals[aa_indices], 'pseudo_dihedrals')
+                self.cg_trajs[ubq_site].load_CVs(dihedrals[cg_indices], 'pseudo_dihedrals')
+                self.aa_trajs[ubq_site].load_CVs(dists[aa_indices], 'cog_dists')
+                self.cg_trajs[ubq_site].load_CVs(dists[cg_indices], 'cog_dists')
+
+        for ubq_site in self.ubq_sites:
+            image_file = os.path.join(self.analysis_dir, f'cog_vs_dihe_{ubq_site}.png')
             if not os.path.isfile(image_file) or overwrite or overwrite_image:
-                nbins = 100
-                H, (xedges, yedges, zedges) = np.histogramdd(self.inertia_tensors[ubq_site], bins=nbins)
+                fig, (ax1, ax2) = plt.subplots(ncols=2, sharex=True, sharey=True)
 
-                xcenters = np.mean(np.vstack([xedges[0:-1], xedges[1:]]), axis=0)
-                ycenters = np.mean(np.vstack([yedges[0:-1], yedges[1:]]), axis=0)
+                for i, ax in enumerate([ax1, ax2]):
+                    ax.set_ylim([-180, 180])
+                    ax.set_xlabel('COG distance dist-prox in nm')
+                    if i == 0:
+                        ax.set_ylabel('Pseudo dihedral prox-LYQ-GLQ-dist in degree')
 
-                X, Y = np.meshgrid(xcenters, ycenters)
-
-                plt.close('all')
-                fig = plt.figure()
-                ax = fig.add_subplot(221, projection='3d')
-                ax1 = fig.add_subplot(222)
-                ax2 = fig.add_subplot(223)
-                ax3 = fig.add_subplot(224)
-                # fig, ax = plt.subplots(subplot_kw={'projection': '3d'})
-
-                # ax.scatter(*analysis.inertia_tensors[::100].T, c='k', s=1, alpha=0.01)
-
-                ax.set_xlabel('x')
-                ax.set_ylabel('y')
-                ax.set_zlabel('z')
-
-                for ct in np.linspace(0, nbins, 20, dtype=int, endpoint=False):
-                    cmap = plt.cm.get_cmap('turbo').copy()
-                    cmap.set_bad('w', alpha=0.0)
-                    hist = np.ma.masked_where(H[:, :, ct] == 0, H[:, :, ct])
-                    cs = ax.contourf(X, Y, hist.T, zdir='z',
-                                     offset=zedges[ct],
-                                     levels=20,
-                                     cmap='turbo', alpha=0.5)
-                # divider = make_axes_locatable(ax)
-                # cax = divider.append_axes('right', size='2%', pad=0.05)
-                # plt.colorbar(cs, cax=cax)
-
-                ax.set_xlim(xedges[[0, -1]])
-                ax.set_ylim(yedges[[0, -1]])
-                ax.set_zlim(zedges[[0, -1]])
-
-                # plt.savefig('/mnt/data/kevin/xplor_analysis_files/inertia_distribution.png')
-                ax1.hist(self.inertia_tensors[ubq_site][:, 0], bins=xedges, density=True)
-                ax2.hist(self.inertia_tensors[ubq_site][:, 1], bins=yedges, density=True)
-                ax3.hist(self.inertia_tensors[ubq_site][:, 2], bins=zedges, density=True)
-
-                for ax, means, covars, weights in zip([ax1, ax2, ax3], all_means, all_covars, all_weights):
-                    x = np.linspace(0, ax.get_xlim()[1], 10000)
-                    for mean, covar, weight, color in zip(means, covars, weights, ['C1', 'C2', 'C3']):
-                        ax.plot(x, weight * scipy_norm.pdf(x, mean, np.sqrt(covar)).ravel(), c=color)
-
-                for pos, ax in zip(['x', 'y', 'z'], [ax1, ax2, ax3]):
-                    ax.set_xlabel(r"$I_{" f"{pos}{pos}"+ r"}$ in $amu \cdot nm^{2}$")
-                    ax.set_ylabel("Count")
-                    ax.set_title(f"Moment of inertia along {pos} axis")
-
+                ax1.scatter(self.trajs[ubq_site].cog_dists, self.trajs[ubq_site].pseudo_dihedrals, s=1)
+                pyemma.plots.plot_density(self.trajs[ubq_site].cog_dists, self.trajs[ubq_site].pseudo_dihedrals, cmap='turbo', ax=ax2)
+                print(f"Saving Image at {image_file}")
                 plt.tight_layout()
                 plt.savefig(image_file)
+
+    def cluster_pseudo_torsion(self, overwrite=False, overwrite_image=False,
+                               overwrite_struct_files=False):
+        if self.check_attr_all('cluster_membership_in_pseudo_dih_space') and not overwrite:
+            print("Pseudo dihedral already in all trajs")
+        else:
+            for i, ubq_site in enumerate(self.ubq_sites):
+                print(ubq_site)
+                cluster_membeship_file = os.path.join(self.analysis_dir, f'pseudo_dihedrals_cluster_membership_{ubq_site}.npy')
+                if not os.path.isfile(cluster_membeship_file) or overwrite:
+                    data = np.vstack([self.trajs[ubq_site].cog_dists, self.trajs[ubq_site].pseudo_dihedrals]).T
+                    print(data.shape)
+                    clusterer = hdbscan.HDBSCAN(min_cluster_size=100).fit(data)
+                    labels = clusterer.labels_
+                    unique_labels, counts = np.unique(clusterer.labels_, return_counts=True)
+                    print(unique_labels, counts)
+                    most_populated_clusters = np.argsort(counts[1:])[::-1][:5]
+                    print(most_populated_clusters)
+                    small_clusters = np.setdiff1d(unique_labels, most_populated_clusters)
+                    print(small_clusters)
+                    for small_cluster in small_clusters:
+                        labels[labels == small_cluster] = -1
+                    print(np.unique(labels))
+                    for j, cluster_num in enumerate(np.unique(labels)[1:]):
+                        labels[labels == cluster_num] = j
+                    print(np.unique(labels, return_counts=True))
+                    np.save(cluster_membeship_file, labels)
+                else:
+                    labels = np.load(cluster_membeship_file)
+                aa_indices = np.arange(self.aa_trajs[ubq_site].n_frames)
+                cg_indices = np.arange(self.aa_trajs[ubq_site].n_frames,
+                                       self.aa_trajs[ubq_site].n_frames + self.cg_trajs[ubq_site].n_frames)
+                self.aa_trajs[ubq_site].load_CVs(labels[aa_indices], 'cluster_membership_in_pseudo_dih_space')
+                self.cg_trajs[ubq_site].load_CVs(labels[cg_indices], 'cluster_membership_in_pseudo_dih_space')
+
+        for ubq_site in self.ubq_sites:
+            image_file = os.path.join(self.analysis_dir, f'cog_vs_dihe_{ubq_site}.png')
+            if not os.path.isfile(image_file) or overwrite or overwrite_image:
+                fig, (ax1, ax2, ax3) = plt.subplots(ncols=3, sharex=True, sharey=True, figsize=(15, 5))
+
+                for i, ax in enumerate([ax1, ax2]):
+                    ax.set_ylim([-180, 180])
+                    ax.set_xlabel('COG distance dist-prox in nm')
+                    if i == 0:
+                        ax.set_ylabel('Pseudo dihedral prox-LYQ-GLQ-dist in degree')
+
+                ax1.scatter(self.trajs[ubq_site].cog_dists, self.trajs[ubq_site].pseudo_dihedrals, s=1)
+                pyemma.plots.plot_density(self.trajs[ubq_site].cog_dists, self.trajs[ubq_site].pseudo_dihedrals,
+                                          cmap='turbo', ax=ax2)
+                color_palette = sns.color_palette('deep', max(self.trajs[ubq_site].cluster_membership_in_pseudo_dih_space) + 1)
+                cluster_colors = [(*color_palette[x], 1) if x >= 0
+                                  else (0.5, 0.5, 0.5, 0.1)
+                                  for x in self.trajs[ubq_site].cluster_membership_in_pseudo_dih_space]
+                ax3.scatter(self.trajs[ubq_site].cog_dists, self.trajs[ubq_site].pseudo_dihedrals, s=1, c=cluster_colors)
+                for cluster_num in np.unique(self.trajs[ubq_site].cluster_membership_in_pseudo_dih_space):
+                    if cluster_num == -1:
+                        continue
+                    center_cog_dist = np.mean(self.trajs[ubq_site].cog_dists[self.trajs[ubq_site].cluster_membership_in_pseudo_dih_space == cluster_num])
+                    center_dih_angl = np.mean(self.trajs[ubq_site].pseudo_dihedrals[self.trajs[ubq_site].cluster_membership_in_pseudo_dih_space == cluster_num])
+                    ax3.scatter(center_cog_dist, center_dih_angl, marker='h', facecolors='w', edgecolors='k')
+                    ax3.annotate(cluster_num, (center_cog_dist, center_dih_angl), xytext=(5, 5), textcoords='offset pixels')
+                print(f"Saving Image at {image_file}")
+                plt.tight_layout()
+                plt.savefig(image_file)
+            else:
+                print("Not overwriting image")
+
+        ref, idx, labels = center_ref_and_load()
+        ref_aa = self.aa_trajs['k6'][0][0].traj.superpose(ref,
+                                                          atom_indices=self.aa_trajs[ubq_site][0][0].traj.top.select(
+                                                              'name CA and resid >= 76'),
+                                                          ref_atom_indices=ref.top.select('name CA'))
+
+        cluster_selections = {'k6': [2], 'k29': [0, 3, 4], 'k33': [3, 4]}
+
+        if overwrite_struct_files:
+            shutil.rmtree(os.path.join(self.analysis_dir, f'cluster_analysis_cog_dihe/'))
+
+        for ubq_site in self.ubq_sites:
+            for cluster_num in cluster_selections[ubq_site]:
+                if cluster_num == -1:
+                    continue
+                cluster_analysis_outdir = os.path.join(self.analysis_dir,
+                                                       f'cluster_analysis_cog_dihe/{ubq_site}/cluster_{cluster_num}')
+                os.makedirs(cluster_analysis_outdir, exist_ok=True)
+                struct_file = os.path.join(cluster_analysis_outdir, f'{ubq_site}_cog_vs_dihe_cluster_{cluster_num}.pdb')
+                traj_file = os.path.join(cluster_analysis_outdir, f'{ubq_site}_cog_vs_dihe_cluster_{cluster_num}.xtc')
+                if not os.path.isfile(struct_file) or overwrite or overwrite_struct_files:
+                    view, traj = _gen_dummy_traj_single(self.aa_trajs[ubq_site], cluster_num, col='cluster_membership_in_pseudo_dih_space',
+                                                        superpose=ref_aa, max_frames=300, stack_atoms=False, align_string='name CA and resid >= 76')
+                    traj[0].save_pdb(struct_file)
+                    traj[1:].save_xtc(traj_file)
+                else:
+                    print("Not overwriting struct files.")
 
     def get_75_percent_convex_hull(self):
         pass
