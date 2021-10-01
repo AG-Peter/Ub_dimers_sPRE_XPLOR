@@ -139,3 +139,10 @@ Latex
 *.aux
 *.log
 *.synctex.gz
+/Summary.bcf
+/Summary.nav
+/Summary.out
+/Summary.run.xml
+/Summary.snm
+/Summary.toc
+/Summary.vrb

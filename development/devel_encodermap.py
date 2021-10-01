@@ -37,28 +37,42 @@ if not 'analysis' in globals():
     # analysis = xplor.functions.EncodermapSPREAnalysis(['k6'])
     # analysis = xplor.functions.EncodermapSPREAnalysis(['k29'])
     # analysis = xplor.functions.EncodermapSPREAnalysis(['k33'])
+# analysis.set_cluster_exclusions({'k6': [], 'k29': [7], 'k33': []})
 # analysis.analyze()
 # analysis.load_xplor_data(overwrite=True)
-# analysis.cluster_analysis()
-# analysis.plot_cluster(0, 'k6', overwrite=True)
-# analysis.fitness_assessment(overwrite=True)
+# analysis.cluster_analysis(overwrite=True)
+# analysis.fitness_assessment(overwrite_image=True)
+# analysis.where_is_best_fitting_point()
+analysis.find_lowest_diffs_in_all_quality_factors(overwrite=True)
 # analysis.get_surface_coverage(overwrite_image=True)
 # analysis.get_mean_tensor_of_inertia(overwrite=True)
 # analysis.distance_vs_pseudo_torsion(overwrite_image=True)
 # analysis.cluster_pseudo_torsion(overwrite_struct_files=True)
 
-# %% Develop inertia tensors
-mean = np.mean(analysis.inertia_tensors['k6'], axis=0)
-std = np.std(analysis.inertia_tensors['k6'], axis=0)
-lower = mean - 0.75 * std
-upper = mean + 0.75 * std
+# %% Plot a single cluster
 
-test = np.logical_and(analysis.inertia_tensors['k6'] >= lower, analysis.inertia_tensors['k6'] <= upper)
-test = np.all(test, axis=(1, 2))
-np.unique(test, return_counts=True)
+analysis.plot_cluster(2, 'k6', overwrite=True, out_file='/home/kevin/projects/tobias_schneider/new_images/summary_single_cluster.png')
 
-# %% Test volumetric plot
-%matplotlib qt5
+# %%
+
+# for ubq_site in analysis.ubq_sites:
+#     np.save(f'/mnt/data/kevin/xplor_analysis_files/lowd_{ubq_site}_aa.npy', analysis.aa_trajs[ubq_site].lowd)
+#     np.save(f'/mnt/data/kevin/xplor_analysis_files/lowd_{ubq_site}_cg.npy', analysis.cg_trajs[ubq_site].lowd)
+
+for ubq_site in analysis.ubq_sites:
+    name_arr = []
+    for traj in analysis.aa_trajs[ubq_site]:
+        for frame in traj:
+            name_arr.append(frame.traj_file)
+    name_arr = np.array(name_arr)
+    index = np.array(['kevin' in i for i in name_arr])
+    np.save(f'/mnt/data/kevin/xplor_analysis_files/lowd_{ubq_site}_aa_rotamers.npy', analysis.aa_trajs[ubq_site].lowd[index])
+    index = np.array(['GfM_SMmin' in i and 'rnd' not in i for i in name_arr])
+    np.save(f'/mnt/data/kevin/xplor_analysis_files/lowd_{ubq_site}_SMin.npy', analysis.aa_trajs[ubq_site].lowd[index])
+    index = np.array(['GfM_SMmin_rnd' in i for i in name_arr])
+    np.save(f'/mnt/data/kevin/xplor_analysis_files/lowd_{ubq_site}_aa_SMin_rnd.npy', analysis.aa_trajs[ubq_site].lowd[index])
+    index = np.array(['G_2ub' in i for i in name_arr])
+    np.save(f'/mnt/data/kevin/xplor_analysis_files/lowd_{ubq_site}_aa_extended.npy', analysis.aa_trajs[ubq_site].lowd[index])
 
 # %%
 

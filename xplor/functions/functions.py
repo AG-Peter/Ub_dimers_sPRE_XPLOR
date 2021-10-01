@@ -1483,7 +1483,7 @@ def get_series_from_mdtraj(frame, traj_file, top_file, frame_no, testing=False,
     return series
 
 
-def make_linear_combination_from_clusters(trajs, df, df_obs, fast_exchangers, ubq_site, return_means=False, cluster_nums=None):
+def make_linear_combination_from_clusters(trajs, df, df_obs, fast_exchangers, ubq_site, return_means=False, cluster_nums=None, exclusions=[]):
     """Makes a linear combination from sPRE values and clustered trajs.
 
     Args:
@@ -1518,11 +1518,16 @@ def make_linear_combination_from_clusters(trajs, df, df_obs, fast_exchangers, ub
 
     # calculcate the per-cluster per-residue means
     cluster_means = []
+    cluster_means_out = np.zeros((df['cluster_membership'].max() + 1, 152))
+    solv = np.zeros(df['cluster_membership'].max() + 1)
     for cluster_num in np.unique((df['cluster_membership'])):
         if cluster_num == -1:
             continue
+        if cluster_num in exclusions:
+            continue
         mean = np.median(df[sPRE_ind][df['cluster_membership'] == cluster_num], axis=0)
         cluster_means.append(mean)
+        cluster_means_out[cluster_num] = mean
     cluster_means = np.vstack(cluster_means)
     # print(cluster_means.shape, obs.shape)
     # print(np.any(np.isnan(cluster_means)))
@@ -1538,7 +1543,20 @@ def make_linear_combination_from_clusters(trajs, df, df_obs, fast_exchangers, ub
     # print(solv)
 
     # test scipy nnls
-    solv = scipy.optimize.nnls(cluster_means.T[~fast_exchange], obs[~fast_exchange])[0]
+    solv_ = scipy.optimize.nnls(cluster_means.T[~fast_exchange], obs[~fast_exchange])[0]
+
+    i = 0
+    for cluster_num in np.unique((df['cluster_membership'])):
+        if cluster_num == -1:
+            continue
+        if cluster_num in exclusions:
+            continue
+        solv[cluster_num] = solv_[i]
+        i += 1
+
+    print('solv_: ', solv_.shape)
+    print('clu_membership: ', np.unique(df['cluster_membership']))
+    print('solv: ', solv.shape)
 
     # make linear combination
     # x = scipy.optimize.lsq_linear(cluster_means.T[~fast_exchange], obs[~fast_exchange], bounds=(0, 1))
@@ -1547,5 +1565,5 @@ def make_linear_combination_from_clusters(trajs, df, df_obs, fast_exchangers, ub
     #    print(argsort)
     #     print(x.x[argsort])
     if return_means:
-        return solv, cluster_means
+        return solv, cluster_means_out
     return solv

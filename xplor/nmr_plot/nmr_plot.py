@@ -456,12 +456,13 @@ def fake_legend(ax, dict_of_fake_labels):
                 legend_elements.append(legend_element)
         elif type_ == 'text':
             for element in elements:
-                legend_element_text = func_dict[type_](element['text'], element['color'], label=element['label'])
+                legend_element_text = func_dict[type_](text=element['text'], color=element['color'], label=element['label'])
+                print(legend_element_text)
                 legend_elements.append(legend_element_text)
         elif type_ == 'scatter':
             for element in elements:
-                legend_element_text = func_dict[type_]([0], [0], color='w', marker=element['marker'], markerfacecolor=element['color'], label=element['label'])
-                legend_elements.append(legend_element_text)
+                legend_element = func_dict[type_]([0], [0], color='w', marker=element['marker'], markerfacecolor=element['color'], label=element['label'])
+                legend_elements.append(legend_element)
         else:
             print(f"Unknown label type {type_}")
 
