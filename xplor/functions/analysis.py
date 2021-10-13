@@ -27,13 +27,14 @@ from .parse_input_files.parse_input_files import get_observed_df, get_fast_excha
 from string import ascii_uppercase
 import cartopy.crs as ccrs
 from ..misc import get_iso_time
+from pprint import pprint
 
 ################################################################################
 # Globals
 ################################################################################
 
 
-__all__ = ['EncodermapSPREAnalysis']
+__all__ = ['EncodermapSPREAnalysis', 'h5load']
 
 
 ################################################################################
@@ -123,11 +124,11 @@ def appendSphericalFrame(xyz):
     return ptsnew
 
 
-def appendSphericalTraj(xyz):
+def appendSphericalTraj(pts):
     """Appends the spherical coordiantes to an array of xyz.
 
     Args:
-        xyz (np.ndarray): An array of shape (n_frames, n_atoms, 3), where n is the number of
+        pts (np.ndarray): An array of shape (n_frames, n_atoms, 3), where n is the number of
             points.
 
     r e [0, inf)
@@ -141,12 +142,12 @@ def appendSphericalTraj(xyz):
             the azimuth as defined by phi = arctan ( y / x)
 
     """
-    ptsnew = np.dstack((xyz, np.zeros(xyz.shape)))
-    xy = xyz[:, :, 0]**2 + xyz[:, :, 1]**2
-    ptsnew[:, :, 3] = np.sqrt(xy + xyz[:, :, 2]**2)
-    ptsnew[:, :, 4] = np.arctan2(np.sqrt(xy), xyz[:, :, 2]) # for elevation angle defined from Z-axis down
+    ptsnew = np.dstack((pts, np.zeros(pts.shape)))
+    xy = pts[:, :, 0] ** 2 + pts[:, :, 1] ** 2
+    ptsnew[:, :, 3] = np.sqrt(xy + pts[:, :, 2] ** 2)
+    ptsnew[:, :, 4] = np.arctan2(np.sqrt(xy), pts[:, :, 2]) # for elevation angle defined from Z-axis down
     # ptsnew[:, :, 4] = np.arctan2(xyz[:, :, 2], np.sqrt(xy)) # for elevation angle defined from XY-plane up
-    ptsnew[:, :, 5] = np.arctan2(xyz[:, :, 1], xyz[:, :, 0])
+    ptsnew[:, :, 5] = np.arctan2(pts[:, :, 1], pts[:, :, 0])
     return ptsnew
 
 
@@ -198,7 +199,8 @@ def appendLonLatTraj(xyz):
     new = appendSphericalTraj(xyz)
     new[:, :, 4:] = np.rad2deg(new[:, :, 4:])
     new[:, :, [4, 5]] = new[:, :, [5, 4]]
-    new[:, 5] -= 90.0
+    new[:, :, 5] -= 90.0
+    new[:, :, 5] *= -1
     return new
 
 
@@ -217,18 +219,21 @@ def center_ref_and_load(overwrite=False):
     return traj, CA_indices, resnames
 
 
-def add_reference_to_map(ax, step=5):
+def add_reference_to_map(ax, step=5, rotate=False, pole_longitude=180, pole_latitude=90):
     traj, idx, labels = center_ref_and_load()
     scatter = traj.xyz[0, idx]
     scatter = appendLonLatFrame(scatter)
     lons, lats = scatter[:, 4:].T
-    ax.set_global()
     ax.gridlines()
-    ax.plot(lons, lats, marker='o', transform=ccrs.Geodetic())
-
+    if rotate:
+        transform = ccrs.RotatedGeodetic(pole_longitude=pole_longitude, pole_latitude=pole_latitude)
+    else:
+        transform = ccrs.Geodetic()
+    ax.plot(lons, lats, marker='o', transform=transform)
+    ax.set_global()
     for i, label in enumerate(labels):
         if (i + 1) % step == 0 or i == 0:
-            ax.annotate(label, (lons[i], lats[i]), xycoords=ccrs.Geodetic()._as_mpl_transform(ax))
+            ax.annotate(label, (lons[i], lats[i]), xycoords=transform._as_mpl_transform(ax))
     return ax
 
 
@@ -286,6 +291,20 @@ def _compute_n_dihedrals(pos, out=None):
     return np.arctan2(p1, p2, out)
 
 
+def h5store(filename, df, **kwargs):
+    """https://stackoverflow.com/questions/29129095/save-additional-attributes-in-pandas-dataframe/29130146#29130146"""
+    store = pd.HDFStore(filename)
+    store.put('mydata', df)
+    store.get_storer('mydata').attrs.metadata = kwargs
+    store.close()
+
+def h5load(store):
+    """https://stackoverflow.com/questions/29129095/save-additional-attributes-in-pandas-dataframe/29130146#29130146"""
+    data = store['mydata']
+    metadata = store.get_storer('mydata').attrs.metadata
+    return data, metadata
+
+
 ################################################################################
 # Classes
 ################################################################################
@@ -313,9 +332,9 @@ class EncodermapSPREAnalysis:
         self.analysis_dir = analysis_dir
         if not os.path.isdir(self.analysis_dir):
             os.makedirs(self.analysis_dir)
-        self.cluster_exclusions = {'k6': [], 'k29': [7], 'k33': []}
+        self.cluster_exclusions = {'k6': [3], 'k29': [7], 'k33': [6]}
 
-    def set_cluster_exclusions(self, new_exclusions={'k6': [], 'k29': [7], 'k33': []}):
+    def set_cluster_exclusions(self, new_exclusions={'k6': [3], 'k29': [7], 'k33': [6]}):
         print(f"Setting {new_exclusions}")
         self.cluster_exclusions = new_exclusions
 
@@ -333,22 +352,27 @@ class EncodermapSPREAnalysis:
                 keys are named according to the stages.
 
         """
+        self.set_cluster_exclusions()
         ow_dict = {'load_trajs': False, 'load_highd': False, 'train_encodermap': False,
                    'load_xplor_data': False, 'cluster': False, 'plot_lowd': False,
                    'cluster_analysis': False, 'fitness_assessment': False,
                    'get_surface_coverage': False, 'distance_vs_pseudo_torsion': False,
-                   'cluster_pseudo_torsion': False}
+                   'cluster_pseudo_torsion': False, 'where_is_best_fitting_point': False,
+                   'find_lowest_diffs_in_all_quality_factors': False, 'plot_cluster_rmsds': False}
         ow_dict.update(overwrite_dict)
         self.load_trajs(overwrite=ow_dict['load_trajs'])
         self.load_highd(overwrite=ow_dict['load_highd'])
         self.train_encodermap(overwrite=ow_dict['train_encodermap'])
         self.load_xplor_data(overwrite=ow_dict['load_xplor_data'])
         self.cluster(overwrite=ow_dict['cluster'])
-        self.cluster_analysis(overwrite=ow_dict['cluster_analysis'])
-        self.fitness_assessment(overwrite=ow_dict['fitness_assessment'])
-        self.get_surface_coverage(overwrite=ow_dict['get_surface_coverage'])
-        self.distance_vs_pseudo_torsion(overwrite=ow_dict['distance_vs_pseudo_torsion'])
-        self.cluster_pseudo_torsion(overwrite=ow_dict['cluster_pseudo_torsion'])
+        # self.cluster_analysis(overwrite=ow_dict['cluster_analysis'])
+        # self.where_is_best_fitting_point(overwrite=ow_dict['where_is_best_fitting_point'])
+        # self.find_lowest_diffs_in_all_quality_factors(overwrite=ow_dict['find_lowest_diffs_in_all_quality_factors'])
+        # self.plot_cluster_rmsds(overwrite=ow_dict['plot_cluster_rmsds'])
+        # self.fitness_assessment(overwrite=ow_dict['fitness_assessment'])
+        # self.get_surface_coverage(overwrite=ow_dict['get_surface_coverage'])
+        # self.distance_vs_pseudo_torsion(overwrite=ow_dict['distance_vs_pseudo_torsion'])
+        # self.cluster_pseudo_torsion(overwrite=ow_dict['cluster_pseudo_torsion'])
 
     def check_attr_all(self, attr_name):
         for ubq_site in self.ubq_sites:
@@ -356,6 +380,161 @@ class EncodermapSPREAnalysis:
                 if not hasattr(_[ubq_site], attr_name):
                     return False
         return True
+
+    def run_per_cluster_analysis(self, overwrite=False, overwrite_df_creation=False,
+                                 overwrite_polar_plots=False, overwrite_pdb_files=False):
+        """Do the following steps for the clusters:
+
+        * Choose the two (three) highest coefficients and:
+        * Render 90 deg shifted polar projection plot.
+        * Render wireframe
+        * Do a linear combination again with just these two (three) clusters and plot the sPRE again.
+
+        Todo:
+            * For the sPRE move the IQR and Q1,3 ranges into the upper legend.
+
+        """
+        df_file = '/home/kevin/projects/tobias_schneider/new_images/clusters.h5'
+        if os.path.isfile(df_file) and not overwrite and not overwrite_df_creation:
+            print("df file exists. Not overwriting")
+            with pd.HDFStore(df_file) as store:
+                df, metadata = h5load(store)
+                if isinstance(df.loc[0, 'internal RMSD'], np.ndarray):
+                    df['internal RMSD'] = df['internal RMSD'].apply(np.var)
+        else:
+            metadata = {}
+
+            for i, ubq_site in enumerate(self.ubq_sites):
+                linear_combination, cluster_means = make_linear_combination_from_clusters(self.trajs[ubq_site], self.df_comp_norm,
+                                                                                  self.df_obs,
+                                                                                  self.fast_exchangers, ubq_site=ubq_site,
+                                                                                  return_means=True)
+                assert np.isclose(np.sum(linear_combination), 1)
+
+                # get some values true for all clusters and start the dict with data
+                n_frames_total = self.trajs[ubq_site].n_frames
+                aa_cluster_nums = np.unique(self.aa_trajs[ubq_site].cluster_membership)
+                exp_values = self.df_obs[ubq_site][self.df_obs[ubq_site].index.str.contains('sPRE')].values
+                mean_abs_diff_full_combination = np.mean(np.abs(np.sum(linear_combination * cluster_means.T, 1) - exp_values))
+
+                df_data = {'cluster id': [], 'N frames': [], 'ensemble %': [],
+                           'ubq site': [], 'aa %': [], 'internal RMSD': [], 'coefficient': [],
+                           'mean abs diff to exp': []}
+
+                for cluster_num, (coefficient, cluster_mean) in enumerate(zip(linear_combination, cluster_means)):
+                    if cluster_num not in aa_cluster_nums:
+                        print(f"Cluster {cluster_num} not in aa trajs")
+                        continue
+
+                    print(f"At cluster num {cluster_num}")
+                    points_in_cluster = len(np.where(self.trajs[ubq_site].cluster_membership == cluster_num)[0])
+                    aa_where = np.where(self.aa_trajs[ubq_site].cluster_membership == cluster_num)[0]
+                    ensemble_percent = points_in_cluster / n_frames_total * 100
+                    aa_percent = len(aa_where) / points_in_cluster * 100
+                    indices = self.aa_trajs[ubq_site].index_arr[aa_where]
+
+                    # get the RMSD centroidf for internal RMSD calculations
+                    max_frames = 500
+                    view, dummy_traj = gen_dummy_traj(self.aa_trajs[ubq_site], cluster_num, max_frames=max_frames,
+                                                      superpose=True)
+                    where = np.where(self.aa_trajs[ubq_site].cluster_membership == cluster_num)[0]
+                    idx = np.round(np.linspace(0, len(where) - 1, max_frames)).astype(int)
+                    where = where[idx]
+                    index, mat, centroid = rmsd_centroid_of_cluster(dummy_traj)
+
+                    for j, (traj_num, frame_num) in enumerate(indices):
+                        if j % 250 == 0:
+                            print(f"Building cluster traj for {cluster_num}. At step {j}")
+                        if j == 0:
+                            traj = self.aa_trajs[ubq_site][traj_num][frame_num].traj
+                        else:
+                            traj = traj.join(self.aa_trajs[ubq_site][traj_num][frame_num].traj)
+                    internal_rmsd = md.rmsd(traj, centroid)
+
+                    # get the mean abs diff to the linear combination
+                    mean_abs_diff = np.mean(np.abs(coefficient * cluster_mean - exp_values))
+
+                    df_data['cluster id'].append(cluster_num)
+                    df_data['N frames'].append(points_in_cluster)
+                    df_data['ensemble %'].append(ensemble_percent)
+                    df_data['ubq site'].append(ubq_site)
+                    df_data['aa %'].append(aa_percent)
+                    df_data['internal RMSD'].append(np.var(internal_rmsd))
+                    df_data['coefficient'].append(coefficient)
+                    df_data['mean abs diff to exp'].append(mean_abs_diff)
+                if i == 0:
+                    df = pd.DataFrame(df_data)
+                else:
+                    df = pd.concat([df, pd.DataFrame(df_data)], ignore_index=True)
+                metadata[f'mean_abs_diff_full_combination_{ubq_site}'] = mean_abs_diff_full_combination
+            else:
+                h5store(df_file, df, **metadata)
+
+        if not hasattr(self, 'polar_coordinates_aa'):
+            self.polar_coordinates_aa = {ubq_site: np.load(os.path.join(self.analysis_dir, f'polar_coordinates_aa_{ubq_site}.npy')) for ubq_site in self.ubq_sites}
+
+        if not hasattr(self, 'polar_coordinates_cg'):
+            self.polar_coordinates_cg = {ubq_site: np.load(os.path.join(self.analysis_dir, f'polar_coordinates_cg_{ubq_site}.npy')) for ubq_site in self.ubq_sites}
+
+        for i, ubq_site in enumerate(self.ubq_sites):
+            sub_df = df[df['ubq site'] == ubq_site]
+            for j, row in sub_df.iterrows():
+                cluster_num = row['cluster id']
+                count_id = np.where(np.sort(sub_df['N frames'])[::-1] == row['N frames'])[0][0]
+                cluster_dir = f'/home/kevin/projects/tobias_schneider/new_cluster_analysis/{ubq_site}/cluster_{count_id}/'
+                os.makedirs(cluster_dir, exist_ok=True)
+                image_file = os.path.join(cluster_dir, 'polar_plot.png')
+                pdb_file = os.path.join(cluster_dir, 'cluster.pdb')
+                xtc_file = os.path.join(cluster_dir, 'cluster.xtc')
+                rmsd_centroid_index_file = os.path.join(cluster_dir, 'cluster_rmsd_centroid_index.npy')
+
+                if not os.path.isfile(image_file) or overwrite or overwrite_polar_plots:
+                    where_aa = np.where(self.aa_trajs[ubq_site].cluster_membership == row['cluster id'])[0]
+                    where_cg = np.where(self.cg_trajs[ubq_site].cluster_membership == row['cluster id'])[0]
+                    plt.close('all')
+                    fig, ax = plt.subplots(subplot_kw={'projection': ccrs.EckertIV()})
+                    ax = add_reference_to_map(ax)
+
+                    nbins = 200
+
+                    x = np.concatenate([self.polar_coordinates_aa[ubq_site][where_aa, :, 0].flatten(),
+                                        self.polar_coordinates_cg[ubq_site][where_cg, :, 0].flatten()])
+                    y = np.concatenate([self.polar_coordinates_aa[ubq_site][where_aa, :, 1].flatten(),
+                                        self.polar_coordinates_cg[ubq_site][where_cg, :, 1].flatten()])
+
+                    H, xedges, yedges = np.histogram2d(x=x, y=y, bins=(nbins, int(nbins / 2)), range=[[-180, 180], [-90, 90]])
+                    xcenters = np.mean(np.vstack([xedges[0:-1], xedges[1:]]), axis=0)
+                    ycenters = np.mean(np.vstack([yedges[0:-1], yedges[1:]]), axis=0)
+                    X, Y = np.meshgrid(xcenters, ycenters)
+
+                    lon = np.linspace(-180, 180, nbins)
+                    lat = np.linspace(-90, 90, int(nbins / 2))
+                    lon2d, lat2d = np.meshgrid(lon, lat)
+
+                    cmap = plt.cm.get_cmap('viridis').copy()
+                    cmap.set_bad('w', 0.0)
+                    H = np.ma.masked_where(H < 0.1, H)
+
+                    ax.contourf(X, Y, H.T, transform=ccrs.PlateCarree())
+
+                    plt.savefig(image_file)
+
+                if not os.path.isfile(pdb_file) or overwrite_pdb_files:
+                    max_frames = 500
+                    if not cluster_num in np.unique(self.aa_trajs[ubq_site].cluster_membership):
+                        continue
+                    view, dummy_traj = gen_dummy_traj(self.aa_trajs[ubq_site], cluster_num, max_frames=max_frames,
+                                                      superpose=True)
+                    where = np.where(self.aa_trajs[ubq_site].cluster_membership == cluster_num)[0]
+                    idx = np.round(np.linspace(0, len(where) - 1, max_frames)).astype(int)
+                    where = where[idx]
+                    index, mat, rmsd_centroid = rmsd_centroid_of_cluster(dummy_traj)
+                    rmsd_centroid_index = where[index]
+                    rmsd_centroid.save_pdb(pdb_file)
+                    # dummy_traj.save_xtc(xtc_file)
+                    np.save(rmsd_centroid_index_file, rmsd_centroid_index)
+
+        raise Exception("Final linear combination plot with IQR in legend and redner..")
 
     def load_trajs(self, overwrite=False):
         if hasattr(self, 'trajs'):
@@ -590,6 +769,12 @@ class EncodermapSPREAnalysis:
                 linear_combination = np.load(linear_combination_file)
                 means = np.load(means_file)
 
+            latex_table_data = {'cluster_num': [], 'percent of aa frames': [], 'percent of cg frames': [],
+                                'percent in full ensemble': [], 'coefficient in linear combination': [],
+                                'mean abs difference of cluster mean to exp values': []}
+            sPRE_ind = ['sPRE' in i for i in self.df_obs.index]
+            exp_values = self.df_obs[ubq_site][self.df_obs[ubq_site].index.str.contains('sPRE')].values
+
             for cluster_num, (linear, mean) in enumerate(zip(linear_combination, means)):
                 if cluster_num == -1:
                     continue
@@ -611,8 +796,12 @@ class EncodermapSPREAnalysis:
                 aa_percent = len(aa_cluster_points_ind) / sum_cluster * 100
                 cg_percent = len(cg_cluster_points_ind) / sum_cluster * 100
                 coeff = str(np.format_float_scientific(linear, 2))
+                raise Exception("Rework the mean abs diff. Use coefficient * cluster_mean and not cluster_mean alone.")
+                mean_abs_diff = np.round(np.mean(np.abs(mean - exp_values)), 2)
                 percentage = sum_cluster / self.trajs[ubq_site].n_frames * 100
-                print(f"Cluster {cluster_num} consists of {aa_percent:.2f}% aa structures and {cg_percent:.2f}% of cg structures.")
+                print(f"Cluster {cluster_num} consists of {aa_percent:.2f}% aa structures and {cg_percent:.2f}% of cg structures."
+                      f"The mean abs difference between sim and exp is {mean_abs_diff}."
+                      f"The coefficient in the linear combination is {coeff}")
 
                 # rmsd centroid
                 cluster_pdb_file = os.path.join(cluster_analysis_outdir, f'{ubq_site}_cluster_{cluster_num}_linear_coefficient_{coeff}_ensemble_contribution_{percentage:.1f}_percent.pdb')
@@ -643,8 +832,26 @@ class EncodermapSPREAnalysis:
                     geom_centroid.save_pdb(geom_centroid_file)
                     np.save(geom_centroid_index_file, geom_centroid_index)
 
+                latex_table_data['cluster_num'].append(cluster_num)
+                latex_table_data['percent of aa frames'].append(f'{aa_percent:.0f}% ')
+                latex_table_data['percent of cg frames'].append(f'{cg_percent:.0f}%')
+                latex_table_data['percent in full ensemble'].append(f'{percentage:.0f}%')
+                latex_table_data['coefficient in linear combination'].append(coeff)
+                latex_table_data['mean abs difference of cluster mean to exp values'].append(mean_abs_diff)
+
                 # if not os.path.isfile(image_file) or overwrite_image:
                 #     self.plot_cluster(cluster_num, ubq_site, out_file=image_file, overwrite=True)
+
+            latex_file = os.path.join(self.analysis_dir, f'cluster_analysis_{ubq_site}.tex')
+            excel_file = os.path.join(self.analysis_dir, f'cluster_analysis_{ubq_site}.xlsx')
+            df_ = pd.DataFrame(latex_table_data)
+
+            # check for bad sum in k6
+            if ubq_site == 'k6':
+                print(np.sum(df_['coefficient in linear combination'].astype(float)))
+                df_.to_latex(latex_file, index=False)
+                df_.to_excel(excel_file, index=False)
+                raise Exception("STOP")
 
     def plot_cluster(self, cluster_num, ubq_site, out_file=None,
                      overwrite=False, nbins=100, mhz=800, reduced=True):
@@ -1058,7 +1265,7 @@ class EncodermapSPREAnalysis:
                         print(f"{no_of_considered_clusters} already in json")
                         continue
                     else:
-                        self.all_quality_factors[ubq_site][str(no_of_considered_clusters)] = []
+                        self.all_quality_factors[ubq_site][str(no_of_considered_clusters)] = {}
                     for i, combination in enumerate(combinations):
                         combination = np.asarray(combination)
                         if i == 0:
@@ -1069,10 +1276,12 @@ class EncodermapSPREAnalysis:
                         if np.any([c in self.cluster_exclusions[ubq_site] for c in combination]):
                             print(f"Cluster in combination {combination} was excluded")
                             continue
-                        solv = scipy.optimize.nnls(np.vstack([cluster_means[c] for c in combination]).T[~fast_exchange], obs[~fast_exchange])[0]
+                        # solv = scipy.optimize.nnls(np.vstack([cluster_means[c] for c in combination]).T[~fast_exchange], obs[~fast_exchange])[0]
+                        solv = make_linear_combination_from_clusters(self.aa_trajs[ubq_site], self.df_comp_norm, self.df_obs,
+                                                                     self.fast_exchangers, ubq_site, cluster_nums=combination)
                         result = np.sum(solv * np.vstack([cluster_means[c] for c in combination]).T, 1)
                         diff = float(np.mean(np.abs(result[~fast_exchange] - obs[~fast_exchange])))
-                        self.all_quality_factors[ubq_site][str(no_of_considered_clusters)].append(diff)
+                        self.all_quality_factors[ubq_site][str(no_of_considered_clusters)][', '.join([str(c) for c in combination])] = diff
                     else:
                         print(f"Last combination: {combination}")
 
@@ -1086,8 +1295,8 @@ class EncodermapSPREAnalysis:
                 # data = np.array(self.quality_factor_means[ubq_site])
                 fig, ax = plt.subplots()
                 for key, value in self.all_quality_factors[ubq_site].items():
-                    self.quality_factor_means[ubq_site].append(np.mean(value))
-                ax.boxplot(self.all_quality_factors[ubq_site].values(),
+                    self.quality_factor_means[ubq_site].append(np.mean(list(value.values())))
+                ax.boxplot([[v for v in value.values()] for value in self.all_quality_factors[ubq_site].values()],
                            positions=list(map(int, self.all_quality_factors[ubq_site].keys())))
                 # ax.plot(np.arange(len(data)), data)
 
@@ -1137,80 +1346,77 @@ class EncodermapSPREAnalysis:
         plt.savefig(image_file)
 
     def find_lowest_diffs_in_all_quality_factors(self, overwrite=False):
-        # for i, ubq_site in enumerate(self.ubq_sites):
-        #     for j, (num_of_considered_clusters, value) in enumerate(self.all_quality_factors[ubq_site].items()):
-        #         print(num_of_considered_clusters)
-        #         print(value)
-        #         break
-        #     break
-
+        result = {}
         if overwrite or not hasattr(self, 'all_quality_factors_with_combinations'):
-            self.all_quality_factors_with_combinations = {ubq_site: {} for ubq_site in self.ubq_sites}
-
+            self.min_cluster_combinations = {ubq_site: {} for ubq_site in self.ubq_sites}
             for i, ubq_site in enumerate(self.ubq_sites):
-                df = self.df_comp_norm.copy()
-                df = df.fillna(0)
-                df_obs = self.df_obs.copy()
-                obs = df_obs[df_obs.index.str.contains('sPRE')][ubq_site].values
+                for j, no_of_considered_clusters in enumerate(self.all_quality_factors[ubq_site].keys()):
+                    min_ = float('inf')
+                    for k, (combination, value) in enumerate(self.all_quality_factors[ubq_site][no_of_considered_clusters].items()):
+                        if value < min_:
+                            min_ = value
+                            min_combination = set(ast.literal_eval(combination))
+                    self.min_cluster_combinations[ubq_site][no_of_considered_clusters] = min_combination
+                values = list(self.min_cluster_combinations[ubq_site].values())
+                intersection = values[0].intersection(*values[1:])
+                result[ubq_site] = intersection
+        pprint(result)
 
-                df = df[df['ubq_site'] == ubq_site]
-                sPRE_ind = [i for i in df.columns if 'sPRE' in i and 'norm' in i]
-
-                # put cluster membership into df
-                cluster_membership_sPRE = []
-                for i, traj in enumerate(self.trajs[ubq_site]):
-                    frames = df[df['traj_file'] == traj.traj_file]['frame'].values
-                    cluster_membership_sPRE.append(traj.cluster_membership[frames])
-                cluster_membership_sPRE = np.hstack(cluster_membership_sPRE)
-                df['cluster_membership'] = cluster_membership_sPRE
-
-                # calculcate the per-cluster per-residue median
-                cluster_means = {}
-                allowed_clusters = np.unique(self.aa_trajs[ubq_site].cluster_membership)[1:]
-                for cluster_num in allowed_clusters:
-                    if cluster_num == -1:
-                        continue
-                    mean = np.median(df[sPRE_ind][df['cluster_membership'] == cluster_num], axis=0)
-                    cluster_means[cluster_num] = mean
-                # cluster_means = np.vstack(cluster_means)
-
-                fast_exchange = self.fast_exchangers[ubq_site].values
-
-                allowed_clusters = np.unique(self.aa_trajs[ubq_site].cluster_membership)[1:]
-                n_clust = len(allowed_clusters)
-                print('checking clusters for ', ubq_site, np.unique(self.aa_trajs[ubq_site].cluster_membership), n_clust)
-                for j, no_of_considered_clusters in enumerate(range(2, n_clust + 1)):
-                    values = self.all_quality_factors[ubq_site][str(no_of_considered_clusters)]
-                    print(f'considering {no_of_considered_clusters} clusters')
-                    combinations = itertools.combinations(allowed_clusters, no_of_considered_clusters)
-                    out = {}
-                    k = 0
-                    for combination in combinations:
-                        combination = np.asarray(combination)
-                        if i == 0:
-                            print(f"First combination: {combination}")
-                        if np.any([np.isnan(cluster_means[c]) for c in combination]):
-                            print(f"Cluster in combination {combination} does not occur in aa.")
-                            continue
-                        if np.any([c in self.cluster_exclusions[ubq_site] for c in combination]):
-                            print(f"Cluster in combination {combination} was excluded")
-                            continue
-                        try:
-                            out[' ,'.join(combination.astype(str))] = values[k]
-                        except TypeError:
-                            print(combination)
-                            raise
-                        k += 1
-                        break
-                    else:
-                        print(f"Last combination {combination}")
-                    self.all_quality_factors_with_combinations[ubq_site][no_of_considered_clusters] = out
-                    break
-                break
-        print(self.all_quality_factors_with_combinations)
+        for ubq_site, (clu1, clu2) in result:
+            pass
 
     def plot_cluster_rmsds(self):
-        pass
+        for i, ubq_site in enumerate(self.ubq_sites):
+            labels = []
+            for j, cluster_num in enumerate(np.unique(self.aa_trajs[ubq_site].cluster_membership)[1:]):
+                cluster_analysis_outdir = os.path.join(self.analysis_dir,
+                                                       f'cluster_analysis/{ubq_site}/cluster_{cluster_num}')
+                rmsd_centroid_index_file = os.path.join(cluster_analysis_outdir,
+                                                        f'{ubq_site}_cluster_{cluster_num}_rmsd_centroid.npy')
+                if not os.path.isfile(rmsd_centroid_index_file):
+                    continue
+                if cluster_num in self.cluster_exclusions[ubq_site]:
+                    continue
+                rmsd_centroid_index = np.load(rmsd_centroid_index_file).astype(int)
+                index = self.aa_trajs[ubq_site].index_arr[rmsd_centroid_index]
+                frame = self.aa_trajs[ubq_site][index[0]].traj[index[1]]
+                if j == 0:
+                    traj = copy.deepcopy(frame)
+                else:
+                    traj = traj.join(frame)
+                labels.append(j)
+
+            atom_indices = [a.index for a in traj.topology.atoms if a.element.symbol != 'H']
+            distances = np.empty((traj.n_frames, traj.n_frames))
+            for i in range(traj.n_frames):
+                distances[i] = md.rmsd(traj, traj, i, atom_indices=atom_indices)
+
+            image_file = os.path.join(self.analysis_dir, f'rmsd_matrix_between_clusters_{ubq_site}.png')
+
+            plt.close('all')
+
+            fig, ax = plt.subplots()
+            ax.imshow(distances)
+            ax.set_xticks(range(len(labels)))
+            ax.set_yticks(range(len(labels)))
+            ax.set_xticklabels(labels)
+            ax.set_yticklabels(labels)
+
+            ax.set_xlabel("Cluster ID")
+            ax.set_ylabel("Cluster ID")
+
+            # Loop over data dimensions and create text annotations.
+            for i in range(len(labels)):
+                for j in range(len(labels)):
+                    text = ax.text(j, i, np.round(distances[i, j], 1), fontsize=6,
+                                   ha="center", va="center", color="w")
+
+            ax.set_title("RMSD between two clusters")
+            plt.tight_layout()
+            plt.savefig(image_file)
+
+    def testLonLatTRaj(self):
+        traj = np.array()
 
     def get_surface_coverage(self, overwrite=False, overwrite_image=False):
         if not (hasattr(self, 'polar_coordinates_aa') or hasattr(self, 'polar_coordinates_cg')) or overwrite:
@@ -1219,6 +1425,7 @@ class EncodermapSPREAnalysis:
         for ubq_site in self.ubq_sites:
             if self.polar_coordinates_aa[ubq_site] == [[], []] or overwrite:
                 image_file = os.path.join(self.analysis_dir, f'surface_coverage_{ubq_site}.png')
+                image_file2 = f'/home/kevin/projects/tobias_schneider/new_cluster_analysis/{ubq_site}/surface_coverage_{ubq_site}.png'
                 polar_coordinates_aa_file = os.path.join(self.analysis_dir, f'polar_coordinates_aa_{ubq_site}.npy')
                 polar_coordinates_cg_file = os.path.join(self.analysis_dir, f'polar_coordinates_cg_{ubq_site}.npy')
 
@@ -1281,6 +1488,7 @@ class EncodermapSPREAnalysis:
                 ax.contourf(X, Y, H.T, transform=ccrs.PlateCarree())
 
                 plt.savefig(image_file)
+                plt.savefig(image_file2)
 
     def get_mean_tensor_of_inertia(self, overwrite=False, overwrite_image=False,
                                    with_Ixx_y_Izz_analysis=False):

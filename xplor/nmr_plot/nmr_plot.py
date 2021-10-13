@@ -178,6 +178,7 @@ def add_sequence_to_xaxis(ax, pdb_id='1UBQ', remove_solvent=True, sequence_annot
 
     ax.set_xticks(xticks)
     ax.set_xticklabels(xlabels, rotation=90)
+    ax.set_xlim([0, len(fasta) + 1])
 
     return ax
 
@@ -325,7 +326,7 @@ def plot_confidence_intervals(axes, df, df_index, cmap='Blues', cbar=True,
                 divider = make_axes_locatable(ax)
                 cmap_ticks = np.linspace(0, 1, 2, endpoint=False)
                 cmap_ticks = cmap_ticks + (cmap_ticks[1] - cmap_ticks[0]) / 2
-                cax = divider.append_axes('right', size='2%', pad=0.05)
+                cax = divider.append_axes('right', size='2%', pad=0.15)
                 cbar = plt.gcf().colorbar(sm, ticks=cmap_ticks, orientation='vertical', cax=cax, label="Quartile Range")
                 cax.set_yticklabels([r'$\mathrm{Q_{1/3} \mp IQR}$', 'IQR'])
 
@@ -436,7 +437,7 @@ def color_labels(ax, positions, color='red'):
     return ax
 
 
-def fake_legend(ax, dict_of_fake_labels):
+def fake_legend(ax, dict_of_fake_labels, nrows=None):
     legend_elements = []
 
     func_dict = {'line': Line2D, 'envelope': Patch, 'hatchbar': Patch, 'text': AnyObject, 'scatter': Line2D}
@@ -457,7 +458,6 @@ def fake_legend(ax, dict_of_fake_labels):
         elif type_ == 'text':
             for element in elements:
                 legend_element_text = func_dict[type_](text=element['text'], color=element['color'], label=element['label'])
-                print(legend_element_text)
                 legend_elements.append(legend_element_text)
         elif type_ == 'scatter':
             for element in elements:
@@ -467,9 +467,15 @@ def fake_legend(ax, dict_of_fake_labels):
             print(f"Unknown label type {type_}")
 
     if 'text' in dict_of_fake_labels:
-        ax.legend(handles=legend_elements, loc='upper center', ncol=len(legend_elements), handler_map={legend_element_text: AnyObjectHandler()})
+        if nrows is not None:
+            ax.legend(handles=legend_elements, loc='upper center', ncol=len(legend_elements), handler_map={legend_element_text: AnyObjectHandler()})
+        else:
+            ax.legend(handles=legend_elements, ncol=2, handler_map={legend_element_text: AnyObjectHandler()})
     else:
-        ax.legend(handles=legend_elements, loc='upper center', ncol=len(legend_elements))
+        if nrows is not None:
+            ax.legend(handles=legend_elements, loc='upper center', ncol=len(legend_elements))
+        else:
+            ax.legend(handles=legend_elements, loc='upper center', ncol=int(len(legend_elements) / nrows))
 
     return ax
 

@@ -31,23 +31,72 @@ for root, dirs, files in os.walk("/home/kevin/projects/tobias_schneider/"):
                 print(_['learning_rate'])
                 print(_['n_neurons'])
 
+# %% load and plot
+import json, os
+import matplotlib.pyplot as plt
+import numpy as np
+
+ubq_sites = ['k6', 'k29', 'k33']
+overwrite = True
+quality_factor_means = {ubq_site: [] for ubq_site in ubq_sites}
+
+json_savefile = '/mnt/data/kevin/xplor_analysis_files/quality_factors.json'
+with open(json_savefile, 'r') as f:
+    all_quality_factors = json.load(f)
+
+for ubq_site in ubq_sites:
+    image_file = f'/mnt/data/kevin/xplor_analysis_files/quality_factors_{ubq_site}.png'
+    if not os.path.isfile(image_file) or overwrite or overwrite_image:
+        plt.close('all')
+        # data = np.array(self.quality_factor_means[ubq_site])
+        fig, ax = plt.subplots()
+        for key, value in all_quality_factors[ubq_site].items():
+            quality_factor_means[ubq_site].append(np.mean(list(value.values())))
+        ax.boxplot([[v for v in value.values()] for value in all_quality_factors[ubq_site].values()],
+                   positions=list(map(int, all_quality_factors[ubq_site].keys())))
+        # ax.plot(np.arange(len(data)), data)
+
+        ax.set_title(f"Quality factor for n clusters for {ubq_site}")
+        ax.set_xlabel("n")
+        ax.set_ylabel("Mean abs difference between exp and sim")
+        plt.savefig(image_file)
+
+# %% mean inertia tensor
+import xplor
+
+if not 'analysis' in globals():
+    analysis = xplor.functions.EncodermapSPREAnalysis(['k6'])
+    analysis.load_trajs()
+    analysis.load_highd()
+    analysis.train_encodermap()
+    analysis.set_cluster_exclusions({'k6': [3], 'k29': [7], 'k33': [6]})
+analysis.get_mean_tensor_of_inertia(overwrite=True)
+
+
 # %% develop an analysis function
 if not 'analysis' in globals():
     analysis = xplor.functions.EncodermapSPREAnalysis(['k6', 'k29', 'k33'])
     # analysis = xplor.functions.EncodermapSPREAnalysis(['k6'])
     # analysis = xplor.functions.EncodermapSPREAnalysis(['k29'])
     # analysis = xplor.functions.EncodermapSPREAnalysis(['k33'])
-# analysis.set_cluster_exclusions({'k6': [], 'k29': [7], 'k33': []})
-# analysis.analyze()
+# analysis.set_cluster_exclusions({'k6': [3], 'k29': [7], 'k33': [6]})
+# analysis.analyze(fitness_assessment=True)
 # analysis.load_xplor_data(overwrite=True)
 # analysis.cluster_analysis(overwrite=True)
-# analysis.fitness_assessment(overwrite_image=True)
+# analysis.fitness_assessment(overwrite=True)
 # analysis.where_is_best_fitting_point()
-analysis.find_lowest_diffs_in_all_quality_factors(overwrite=True)
+# analysis.find_lowest_diffs_in_all_quality_factors(overwrite=True)
+# analysis.plot_cluster_rmsds()
 # analysis.get_surface_coverage(overwrite_image=True)
 # analysis.get_mean_tensor_of_inertia(overwrite=True)
 # analysis.distance_vs_pseudo_torsion(overwrite_image=True)
 # analysis.cluster_pseudo_torsion(overwrite_struct_files=True)
+
+# %%
+analysis.run_per_cluster_analysis(overwrite_pdb_files=True)
+
+# %% Single line calls
+analysis.plot_cluster_rmsds()
 
 # %% Plot a single cluster
 

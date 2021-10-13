@@ -19,6 +19,8 @@ from .psf_parser import PSFParser
 from pdbfixer import PDBFixer
 from simtk.openmm.app import PDBFile
 import builtins
+from scipy.optimize import minimize, NonlinearConstraint, Bounds, nnls
+from typing import Callable
 
 
 ################################################################################
@@ -43,6 +45,9 @@ OXT_MAPPING = {'O': 'OT1', 'OXT': 'OT2'}
 #                   'N': 'N', 'NE2': 'NE2',
 #                   'OE1': 'OE1',}
 
+import os
+import builtins
+from io import StringIO
 
 def _redefine_os_path_exists():
     orig_func = os.path.exists
@@ -53,7 +58,6 @@ def _redefine_os_path_exists():
             return orig_func(path)
     os.path.exists = new_func
 
-
 def _redefine_open():
     orig_func = builtins.open
     def new_func(*args, **kwargs):
@@ -63,15 +67,12 @@ def _redefine_open():
             return orig_func(*args, **kwargs)
     builtins.open = new_func
 
+class RAMFile(StringIO):
+    def lower(self):
+        return 'tmp_stringio.pdb'
 
-def _wrap_open(function):
-    def func(*args, **kwargs):
-        if args[0].lower() == 'tmp_stringio.pdb':
-            return args[0]
-        else:
-            return function(*args, **kwargs)
-    return func
-
+    def close(self):
+        pass
 
 _redefine_os_path_exists()
 _redefine_open()
@@ -1483,7 +1484,8 @@ def get_series_from_mdtraj(frame, traj_file, top_file, frame_no, testing=False,
     return series
 
 
-def make_linear_combination_from_clusters(trajs, df, df_obs, fast_exchangers, ubq_site, return_means=False, cluster_nums=None, exclusions=[]):
+def make_linear_combination_from_clusters(trajs, df, df_obs, fast_exchangers, ubq_site, return_means=False, cluster_nums=None,
+                                          exclusions=[], new_method=True):
     """Makes a linear combination from sPRE values and clustered trajs.
 
     Args:
@@ -1495,6 +1497,7 @@ def make_linear_combination_from_clusters(trajs, df, df_obs, fast_exchangers, ub
 
     Keyword Args:
         return_means (bool, optional): Whether to return the cluster means additional to the linear solution.
+        new_method (bool, optional): Whether to use the nerw method using scipy minimize.
 
     Returns:
         np.ndarray: The linear combination to build df_obs.
@@ -1519,15 +1522,21 @@ def make_linear_combination_from_clusters(trajs, df, df_obs, fast_exchangers, ub
     # calculcate the per-cluster per-residue means
     cluster_means = []
     cluster_means_out = np.zeros((df['cluster_membership'].max() + 1, 152))
-    solv = np.zeros(df['cluster_membership'].max() + 1)
-    for cluster_num in np.unique((df['cluster_membership'])):
-        if cluster_num == -1:
-            continue
-        if cluster_num in exclusions:
-            continue
-        mean = np.median(df[sPRE_ind][df['cluster_membership'] == cluster_num], axis=0)
-        cluster_means.append(mean)
-        cluster_means_out[cluster_num] = mean
+    if cluster_nums is None:
+        solv = np.zeros(df['cluster_membership'].max() + 1)
+        for cluster_num in np.unique((df['cluster_membership'])):
+            if cluster_num == -1:
+                continue
+            if cluster_num in exclusions:
+                continue
+            mean = np.median(df[sPRE_ind][df['cluster_membership'] == cluster_num], axis=0)
+            cluster_means.append(mean)
+            cluster_means_out[cluster_num] = mean
+    else:
+        for cluster_num in cluster_nums:
+            mean = np.median(df[sPRE_ind][df['cluster_membership'] == cluster_num], axis=0)
+            cluster_means.append(mean)
+            cluster_means_out[cluster_num] = mean
     cluster_means = np.vstack(cluster_means)
     # print(cluster_means.shape, obs.shape)
     # print(np.any(np.isnan(cluster_means)))
@@ -1545,18 +1554,38 @@ def make_linear_combination_from_clusters(trajs, df, df_obs, fast_exchangers, ub
     # test scipy nnls
     solv_ = scipy.optimize.nnls(cluster_means.T[~fast_exchange], obs[~fast_exchange])[0]
 
-    i = 0
-    for cluster_num in np.unique((df['cluster_membership'])):
-        if cluster_num == -1:
-            continue
-        if cluster_num in exclusions:
-            continue
-        solv[cluster_num] = solv_[i]
-        i += 1
+    # Feli approved
+    if cluster_nums is None:
+        i = 0
+        for cluster_num in np.unique((df['cluster_membership'])):
+            if cluster_num == -1:
+                continue
+            if cluster_num in exclusions:
+                continue
+            solv[cluster_num] = solv_[i]
+            i += 1
 
-    print('solv_: ', solv_.shape)
-    print('clu_membership: ', np.unique(df['cluster_membership']))
-    print('solv: ', solv.shape)
+        print('solv_: ', solv_.shape)
+        print('clu_membership: ', np.unique(df['cluster_membership']))
+        print('solv: ', solv.shape)
+
+    if new_method:
+        res = minimize(get_objective_function(cluster_means.T[~fast_exchange], obs[~fast_exchange]), solv_,
+                       constraints=[constraint], bounds=bounds)
+        assert np.isclose(np.sum(res.x), 1)
+
+        if cluster_nums is None:
+            i = 0
+            for cluster_num in np.unique((df['cluster_membership'])):
+                if cluster_num == -1:
+                    continue
+                if cluster_num in exclusions:
+                    continue
+                solv[cluster_num] = res.x[i]
+                i += 1
+        else:
+            solv = res.x
+
 
     # make linear combination
     # x = scipy.optimize.lsq_linear(cluster_means.T[~fast_exchange], obs[~fast_exchange], bounds=(0, 1))
@@ -1564,6 +1593,21 @@ def make_linear_combination_from_clusters(trajs, df, df_obs, fast_exchangers, ub
     # with np.printoptions(suppress=True):
     #    print(argsort)
     #     print(x.x[argsort])
-    if return_means:
-        return solv, cluster_means_out
-    return solv
+
+    assert np.isclose(np.sum(solv), 1)
+    try:
+        if return_means:
+            return solv, cluster_means_out
+        return solv
+    except ValueError:
+        print(return_means)
+        print(type(return_means))
+        raise
+
+def get_objective_function(cluster_means: np.ndarray, observed_values: np.ndarray) -> Callable:
+    def obj_fun(x: np.ndarray) -> float:
+        return np.linalg.norm(np.sum(x * cluster_means, 1) - observed_values)
+    return obj_fun
+
+constraint = NonlinearConstraint(np.sum, 1., 1.)
+bounds = Bounds(0, 1)
