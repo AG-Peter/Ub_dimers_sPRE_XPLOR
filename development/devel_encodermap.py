@@ -65,12 +65,12 @@ for ubq_site in ubq_sites:
 import xplor
 
 if not 'analysis' in globals():
-    analysis = xplor.functions.EncodermapSPREAnalysis(['k6'])
+    analysis = xplor.functions.EncodermapSPREAnalysis(['k6', 'k29', 'k33'])
+    analysis.load_xplor_data()
     analysis.load_trajs()
     analysis.load_highd()
     analysis.train_encodermap()
-    analysis.set_cluster_exclusions({'k6': [3], 'k29': [7], 'k33': [6]})
-analysis.get_mean_tensor_of_inertia(overwrite=True)
+    analysis.cluster()
 
 
 # %% develop an analysis function
@@ -93,13 +93,13 @@ if not 'analysis' in globals():
 # analysis.cluster_pseudo_torsion(overwrite_struct_files=True)
 
 # %%
-analysis.run_per_cluster_analysis(overwrite_pdb_files=True)
+analysis.write_clusters(directory='/home/kevin/projects/tobias_schneider/new_cluster_analysis', clusters={'k6': [5, 9], 'k29': [0, 12], 'k33': [20]}, which='count_id')
+# analysis.run_per_cluster_analysis(overwrite_surface_coverage=True)
 
 # %% Single line calls
 analysis.plot_cluster_rmsds()
 
 # %% Plot a single cluster
-
 analysis.plot_cluster(2, 'k6', overwrite=True, out_file='/home/kevin/projects/tobias_schneider/new_images/summary_single_cluster.png')
 
 # %%

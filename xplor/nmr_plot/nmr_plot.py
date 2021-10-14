@@ -178,7 +178,7 @@ def add_sequence_to_xaxis(ax, pdb_id='1UBQ', remove_solvent=True, sequence_annot
 
     ax.set_xticks(xticks)
     ax.set_xticklabels(xlabels, rotation=90)
-    ax.set_xlim([0, len(fasta) + 1])
+    ax.set_xlim([0, len(fasta) - 1])
 
     return ax
 
@@ -332,7 +332,10 @@ def plot_confidence_intervals(axes, df, df_index, cmap='Blues', cbar=True,
 
         ax.plot(median, color=plot_color)
         out.append(ax)
-    return out, plot_color
+    if cbar:
+        return out, plot_color
+    else:
+        return out, plot_color, (cmap(1), cmap(0))
 
 def plot_single_struct_sPRE(axes, traj, factors, ubq_site, color, positions=['proximal', 'distal']):
     traj_file = traj.traj_file
@@ -437,7 +440,7 @@ def color_labels(ax, positions, color='red'):
     return ax
 
 
-def fake_legend(ax, dict_of_fake_labels, nrows=None):
+def fake_legend(ax, dict_of_fake_labels, ncols=None):
     legend_elements = []
 
     func_dict = {'line': Line2D, 'envelope': Patch, 'hatchbar': Patch, 'text': AnyObject, 'scatter': Line2D}
@@ -467,15 +470,15 @@ def fake_legend(ax, dict_of_fake_labels, nrows=None):
             print(f"Unknown label type {type_}")
 
     if 'text' in dict_of_fake_labels:
-        if nrows is not None:
+        if ncols is None:
             ax.legend(handles=legend_elements, loc='upper center', ncol=len(legend_elements), handler_map={legend_element_text: AnyObjectHandler()})
         else:
-            ax.legend(handles=legend_elements, ncol=2, handler_map={legend_element_text: AnyObjectHandler()})
+            ax.legend(handles=legend_elements, ncol=ncols, handler_map={legend_element_text: AnyObjectHandler()})
     else:
-        if nrows is not None:
+        if ncols is None:
             ax.legend(handles=legend_elements, loc='upper center', ncol=len(legend_elements))
         else:
-            ax.legend(handles=legend_elements, loc='upper center', ncol=int(len(legend_elements) / nrows))
+            ax.legend(handles=legend_elements, loc='upper center', ncol=int(len(legend_elements) / ncols))
 
     return ax
 
