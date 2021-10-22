@@ -28,6 +28,7 @@ from string import ascii_uppercase
 import cartopy.crs as ccrs
 from ..misc import get_iso_time
 from pprint import pprint
+from collections import OrderedDict
 
 ################################################################################
 # Globals
@@ -304,6 +305,27 @@ def h5load(store):
     metadata = store.get_storer('mydata').attrs.metadata
     return data, metadata
 
+def prox_is_first(traj):
+    residue = traj.top.atom(traj.top.select('resname LYQ')[0]).residue
+    if residue.index < 75:
+        return True
+    else:
+        return False
+
+def get_prox_indices(traj, traf_file):
+    CA = []
+    if prox_is_first(traj):
+        raise Exception(f"For the traj {traf_file}, the proximal unit is first in the chain.")
+    else:
+        raise Exception(f"For the traj {traf_file}, the proximal unit is later in the chain.")
+
+def get_dist_indices(traj, traj_file):
+    CA = []
+    if prox_is_first(traj):
+        raise Exception(f"For the traj {traf_file}, the proximal unit is first in the chain.")
+    else:
+        raise Exception(f"For the traj {traf_file}, the proximal unit is later in the chain.")
+
 
 ################################################################################
 # Classes
@@ -334,9 +356,62 @@ class EncodermapSPREAnalysis:
             os.makedirs(self.analysis_dir)
         self.cluster_exclusions = {'k6': [3], 'k29': [7], 'k33': [6]}
 
-    def set_cluster_exclusions(self, new_exclusions={'k6': [3], 'k29': [7], 'k33': [6]}):
+    @property
+    def base_traj_k6(self):
+        return md.load('/home/andrejb/Software/custom_tools/topology_builder/topologies/gromos54a7-isop/diUBQ_K6/0.pdb')
+
+    @property
+    def base_traj_k29(self):
+        return md.load('/home/andrejb/Software/custom_tools/topology_builder/topologies/gromos54a7-isop/diUBQ_K29/0.pdb')
+
+    @property
+    def base_traj_k33(self):
+        return md.load('/home/andrejb/Software/custom_tools/topology_builder/topologies/gromos54a7-isop/diUBQ_K33/0.pdb')
+
+    def set_cluster_exclusions(self, new_exclusions={'k6': [], 'k29': [], 'k33': []}):
         print(f"Setting {new_exclusions}")
         self.cluster_exclusions = new_exclusions
+
+    def analyze_mean_abs_diff_all(self):
+        for i, ubq_site in enumerate(self.ubq_sites):
+            image_name = f"/home/kevin/projects/tobias_schneider/test_sPRE_values/{ubq_site}_scatter.png"
+            os.makedirs(os.path.split(image_name)[0], exist_ok=True)
+            sub_df = self.df_comp_norm[self.df_comp_norm['ubq_site'] == ubq_site]
+            print(len(sub_df))
+            print(self.aa_trajs[ubq_site].n_frames)
+            files_arr = []
+            frames_arr = []
+            index_arr = self.aa_trajs[ubq_site].index_arr
+            for traj in self.aa_trajs[ubq_site]:
+                files_arr.extend([traj.traj_file for i in range(traj.n_frames)])
+                frames_arr.extend([i for i in range(traj.n_frames)])
+            files_arr = np.array(files_arr)
+            frames_arr = np.array(frames_arr)
+            x = []
+            y = []
+            mean_abs_diffs = []
+            exp_value = self.df_obs[ubq_site][self.df_obs[ubq_site].index.str.contains('sPRE')].values
+            sPRE_ind = [i for i in sub_df.columns if 'sPRE' in i and 'norm' in i]
+            for j, row in sub_df.iterrows():
+                where_file = files_arr == row['traj_file']
+                where_frame = frames_arr == row['frame']
+                where = np.where(np.logical_and(where_file, where_frame))[0]
+                assert len(where) == 1
+                where = where[0]
+                try:
+                    traj_index, frame_index = index_arr[where]
+                except ValueError:
+                    print(where)
+                    raise
+                x.append(self.aa_trajs[ubq_site][traj_index][frame_index].lowd[0])
+                y.append(self.aa_trajs[ubq_site][traj_index][frame_index].lowd[1])
+                sim_value = row[sPRE_ind].values
+                mean_abs_diff = np.mean(np.abs(sim_value - exp_value))
+                mean_abs_diffs.append(mean_abs_diff)
+            plt.close('all')
+            plt.scatter(x, y, c=mean_abs_diffs, cmap='viridis', s=5)
+            plt.savefig(image_name)
+            break
 
     def analyze(self, **overwrite_dict):
         """Start the analysis
@@ -381,7 +456,7 @@ class EncodermapSPREAnalysis:
                     return False
         return True
 
-    def write_clusters(self, directory, clusters, which, max_frames=500, pdb='centroid', align_to_cryst=True):
+    def write_clusters(self, directory, clusters, which, max_frames=500, pdb='rmsd_centroid', align_to_cryst=True):
         df_file = '/home/kevin/projects/tobias_schneider/new_images/clusters.h5'
         with pd.HDFStore(df_file) as store:
             df, metadata = h5load(store)
@@ -395,39 +470,65 @@ class EncodermapSPREAnalysis:
                 sub_df['count id'] = np.argsort(np.argsort(- sub_df['N frames']))
                 cluster_nums = []
                 for cluster_id in cluster_ids:
-                    cluster_nums.append(sub_df['cluster id'][sub_df['count id'] == cluster_id].values)
+                    cluster_nums.append(sub_df['cluster id'][sub_df['count id'] == cluster_id].values[0])
             else:
                 raise Exception(f"Whcih needs to be either 'cluster_ids' or 'count_ids'. You supplied {which}.")
 
             if align_to_cryst:
                 ref, idx, labels = center_ref_and_load()
-                reference = self.aa_trajs['k6'][0][0].traj.superpose(ref, atom_indices=self.aa_trajs[ubq_site][0][0].traj.top.select('name CA and resid >= 76'), ref_atom_indices=ref.top.select('name CA'))
             else:
                 reference = True
 
-            for cluster_num in cluster_nums:
-                cluster_dir = os.path.join(directory, f'{ubq_site}/cluster_{cluster_num}')
+            for cluster_num, cluster_id in zip(cluster_nums, cluster_ids):
+                print(cluster_num, cluster_nums)
+                cluster_dir = os.path.join(directory, f'{ubq_site}/cluster_{cluster_id}')
                 os.makedirs(cluster_dir, exist_ok=True)
                 pdb_file = os.path.join(cluster_dir, 'cluster.pdb')
                 xtc_file = os.path.join(cluster_dir, 'cluster.xtc')
 
                 view, dummy_traj = _gen_dummy_traj_single(self.aa_trajs[ubq_site], cluster_num, max_frames=max_frames,
-                                                  superpose=reference, stack_atoms=False,
-                                                  align_string='name CA and resid >= 76')
+                                                  superpose=ref, stack_atoms=False,
+                                                  align_string='name CA and resid >= 76', ref_align_string='name CA',
+                                                  base_traj=getattr(self, f'base_traj_{ubq_site}'))
+
+                # align to cryst again
+                assert not prox_is_first(dummy_traj)
+                cryst = md.load('/home/kevin/1UBQ.pdb')
+                dummy_traj.superpose(reference=cryst, atom_indices=dummy_traj.top.select('name CA and resid >= 76'),
+                                     ref_atom_indices=cryst.top.select('name CA'))
+                index = []
+                for frame_no, frame in enumerate(dummy_traj):
+                    if not one_bond_too_long(frame, 3):
+                        index.append(frame_no)
+                if len(index) > 0:
+                    print(f"Found {dummy_traj.n_frames - len(index)} bonds with too long bond lengths for {ubq_site}, {cluster_num}.")
+                    index = np.array(index)
+                    dummy_traj = dummy_traj[index]
+                    assert dummy_traj.n_frames > 1
+                else:
+                    print("No bonds too long")
 
                 if isinstance(pdb, str):
-                    where = np.where(self.aa_trajs[ubq_site].cluster_membership == cluster_num)[0]
-                    idx = np.round(np.linspace(0, len(where) - 1, max_frames)).astype(int)
-                    where = where[idx]
-                    index, mat, centroid = rmsd_centroid_of_cluster(dummy_traj)
-                    pdb = centroid
-                    rmsd_centroid_index_file = os.path.join(cluster_dir, 'cluster_rmsd_centroid_index.npy')
-                    rmsd_centroid_index = where[index]
-                    np.save(rmsd_centroid_index_file, rmsd_centroid_index)
+                    if pdb == 'rmsd_centroid':
+                        where = np.where(self.aa_trajs[ubq_site].cluster_membership == cluster_num)[0]
+                        idx = np.round(np.linspace(0, len(where) - 1, max_frames)).astype(int)
+                        where = where[idx]
+                        index, mat, centroid = rmsd_centroid_of_cluster(dummy_traj)
+                        save_pdb = centroid
+                        rmsd_centroid_index_file = os.path.join(cluster_dir, 'cluster_rmsd_centroid_index.npy')
+                        rmsd_centroid_index = where[index]
+                        np.save(rmsd_centroid_index_file, rmsd_centroid_index)
+                    elif pdb == 'geom_centroid':
+                        raise NotImplementedError()
+                    else:
+                        raise Exception(f"Argument `pdb` can be `int` or 'rmsd_centroid', or 'geom_centroid'. You supplied {pdb}")
+                elif isinstance(pdb, int):
+                    save_pdb = dummy_traj[pdb]
                 else:
-                    pdb = dummy_traj[pdb]
+                    raise Exception(f"Argument `pdb` must be int, or str, you supplied {type(pdb)}..")
 
-                pdb.save_pdb(pdb_file)
+                save_pdb.save_pdb(pdb_file)
+                print(f"Saving as {pdb_file}")
                 dummy_traj.save_xtc(xtc_file)
 
 
@@ -435,6 +536,7 @@ class EncodermapSPREAnalysis:
     def run_per_cluster_analysis(self, overwrite=False, overwrite_df_creation=False,
                                  overwrite_polar_plots=False, overwrite_pdb_files=False,
                                  overwrite_final_combination=False, overwrite_surface_coverage=False,
+                                 overwrite_final_correlation=False,
                                  coeff_threshold=0.1):
         """Do the following steps for the clusters:
 
@@ -456,6 +558,14 @@ class EncodermapSPREAnalysis:
             metadata = {}
 
             for i, ubq_site in enumerate(self.ubq_sites):
+
+                linear_combination, cluster_means = make_linear_combination_from_clusters(self.trajs[ubq_site],
+                                                                                          self.df_comp_norm,
+                                                                                          self.df_obs,
+                                                                                          self.fast_exchangers,
+                                                                                          ubq_site=ubq_site,
+                                                                                          return_means=True)
+
                 assert np.isclose(np.sum(linear_combination), 1)
 
                 # get some values true for all clusters and start the dict with data
@@ -466,7 +576,7 @@ class EncodermapSPREAnalysis:
 
                 df_data = {'cluster id': [], 'N frames': [], 'ensemble %': [],
                            'ubq site': [], 'aa %': [], 'internal RMSD': [], 'coefficient': [],
-                           'mean abs diff to exp': []}
+                           'mean abs diff to exp w/ coeff': [], 'mean abs diff to exp w/o coeff': []}
 
                 for cluster_num, (coefficient, cluster_mean) in enumerate(zip(linear_combination, cluster_means)):
                     if cluster_num not in aa_cluster_nums:
@@ -500,6 +610,7 @@ class EncodermapSPREAnalysis:
 
                     # get the mean abs diff to the linear combination
                     mean_abs_diff = np.mean(np.abs(coefficient * cluster_mean - exp_values))
+                    mean_abs_diff_no_coeff = np.mean(np.abs(cluster_mean - exp_values))
 
                     df_data['cluster id'].append(cluster_num)
                     df_data['N frames'].append(points_in_cluster)
@@ -508,7 +619,8 @@ class EncodermapSPREAnalysis:
                     df_data['aa %'].append(aa_percent)
                     df_data['internal RMSD'].append(np.var(internal_rmsd))
                     df_data['coefficient'].append(coefficient)
-                    df_data['mean abs diff to exp'].append(mean_abs_diff)
+                    df_data['mean abs diff to exp w/ coeff'].append(mean_abs_diff)
+                    df_data['mean abs diff to exp w/o coeff'].append(mean_abs_diff_no_coeff)
                 if i == 0:
                     df = pd.DataFrame(df_data)
                 else:
@@ -612,6 +724,7 @@ class EncodermapSPREAnalysis:
 
             final_combination_image = f'/home/kevin/projects/tobias_schneider/new_cluster_analysis/{ubq_site}/combination_of_clusters_{cluster_combination_str}.png'
             final_combination_image_all = f'/home/kevin/projects/tobias_schneider/new_cluster_analysis/{ubq_site}/all_sims_confidence.png'
+            final_correlation_image_all = f'/home/kevin/projects/tobias_schneider/new_cluster_analysis/{ubq_site}/correlation_plot.png'
             exp_value = self.df_obs[ubq_site][self.df_obs[ubq_site].index.str.contains('sPRE')].values
             if not os.path.isfile(final_combination_image) or overwrite_final_combination:
                 plt.close('all')
@@ -628,13 +741,13 @@ class EncodermapSPREAnalysis:
                 ax2.plot(sim_dist, c='C0')
 
                 for coeff, cluster_id, count_id, color, hpos in zip(coefficients_best_clusters, cluster_ids[where], count_ids[where], ['C2', 'C3'], [0.70, 0.60]):
-                    prox, dist = np.split(coeff * cluster_means[cluster_id], 2)
+                    prox, dist = np.split(cluster_means[cluster_id], 2)
                     ax1.plot(prox, c=color)
                     ax2.plot(dist, c=color)
                     mean_abs_diff = sub_df['mean abs diff to exp'][cluster_id]
                     print(count_id, mean_abs_diff)
-                    ax1.text(0.95, hpos, f"mean abs diff exp/sim cluster {count_id} = {mean_abs_diff:.1f}",
-                         transform=ax1.transAxes, ha='right', va='center')
+                    # ax1.text(0.95, hpos, f"mean abs diff exp/sim cluster {count_id} = {mean_abs_diff:.1f}",
+                    #      transform=ax1.transAxes, ha='right', va='center')
 
                 ax1.set_title(f'{ubq_site.upper()}-diUbi proximal')
                 ax2.set_title(f'{ubq_site.upper()}-diUbi distal')
@@ -650,7 +763,7 @@ class EncodermapSPREAnalysis:
                 
                 fake_legend_dict1 = {'line': [{'label': 'NMR experiment', 'color': 'C1'},
                                               {'label': f'combination of cluster {cluster_combination_str_no_underscore}', 'color': color},
-                                              {'label': f'mean of cluster {count_ids[where][0]}', 'color': 'C2'}],
+                                              {'label': f'mean of cluster {count_ids[where][0]} (without coefficient)', 'color': 'C2'}],
                                     'hatchbar': [{'label': 'Fast exchanging residues', 'color': 'lightgrey', 'alpha': 0.3, 'hatch': '//'}],
                                     'text': [{'label': 'Residue used for normalization', 'color': 'red', 'text': 'Ile3'}]}
 
@@ -698,6 +811,47 @@ class EncodermapSPREAnalysis:
                 fake_legend(ax1, fake_legend_dict1)
                 plt.tight_layout()
                 plt.savefig(final_combination_image_all)
+
+            if not os.path.isfile(final_correlation_image_all) or overwrite_final_correlation:
+                plt.close('all')
+                fig, (ax1, ax2,) = plt.subplots(nrows=2, figsize=(20, 10))
+
+                from xplor.nmr_plot import plot_correlation_plot
+
+                where = np.where(sub_df['coefficient'] > coeff_threshold)[0]
+                cluster_ids = sub_df['cluster id'].values
+                count_ids = []
+
+                for cluster_id in cluster_ids:
+                    count_id = np.where(np.sort(sub_df['N frames'])[::-1] == sub_df[sub_df['cluster id'] == cluster_id][
+                        'N frames'].values)[0][0]
+                    count_ids.append(count_id)
+                count_ids = np.array(count_ids)
+
+                fake_legend_dict1 = {'envelope': [{'label': 'median all', 'color': 'C0'},
+                                                  {'label': 'cluster combination', 'color': 'c'}]
+                                     }
+
+                clusters_to_plot = []
+                for coeff, cluster_id, count_id, color in zip(coefficients_best_clusters, cluster_ids[where], count_ids[where], ['grey', 'tab:olive']):
+                    print(cluster_id, count_id)
+                    clusters_to_plot.append({f'cluster {count_id}': cluster_means[cluster_id]})
+                    fake_legend_dict1['envelope'].append({'label': f'cluster {count_id}', 'color': color})
+
+                print('cluster_ids: ', where, 'count_ids: ', count_ids)
+                sim_value = np.sum(coefficients_best_clusters * cluster_means[where].T, 1)
+                to_plot = ['mean', {'final_combination': sim_value}] + clusters_to_plot
+                (ax1, ax2) = plot_correlation_plot((ax1, ax2), self.df_obs, self.df_comp_norm, {'rows': 'sPRE', 'cols': ubq_site},
+                                                   correlations=to_plot)
+
+                for ax, centers in zip([ax1, ax2], [self.centers_prox, self.centers_dist - 76]):
+                    ax = add_sequence_to_xaxis(ax)
+                    ax = color_labels(ax, positions=centers)
+                    ax.set_ylabel(r'\Delta sPRE in $\mathrm{mM^{-1}ms^{-1}}$')
+                fake_legend(ax1, fake_legend_dict1)
+
+                plt.tight_layout()
+                plt.savefig(final_correlation_image_all)
 
     def load_trajs(self, overwrite=False):
         if hasattr(self, 'trajs'):
@@ -853,7 +1007,7 @@ class EncodermapSPREAnalysis:
             self.cg_trajs[ubq_site].load_CVs(cg_lowd, attr_name='lowd')
 
     def load_xplor_data(self, overwrite=False,
-                        csv='conect'):
+                        csv='all_frames'):
         if all([hasattr(self, _) for _ in ['df_obs', 'fast_exchangers', 'in_secondary', 'df_comp_norm', 'norm_factors']]) and not overwrite:
             print("XPLOR data already loaded")
             return
@@ -866,6 +1020,11 @@ class EncodermapSPREAnalysis:
         elif csv == 'no_conect':
             files = glob.glob(
                 '/home/kevin/projects/tobias_schneider/values_from_every_frame/from_package/*.csv')
+            sorted_files = sorted(files, key=get_iso_time)
+            csv = sorted_files[-1]
+        elif csv == 'all_frames':
+            files = glob.glob(
+                '/home/kevin/projects/tobias_schneider/values_from_every_frame/from_package_all/*.csv')
             sorted_files = sorted(files, key=get_iso_time)
             csv = sorted_files[-1]
         df_comp = pd.read_csv(csv, index_col=0)

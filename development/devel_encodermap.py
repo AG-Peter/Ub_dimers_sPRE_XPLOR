@@ -71,6 +71,8 @@ if not 'analysis' in globals():
     analysis.load_highd()
     analysis.train_encodermap()
     analysis.cluster()
+# analysis.fitness_assessment(overwrite=True)
+analysis.analyze_mean_abs_diff_all()
 
 
 # %% develop an analysis function
@@ -93,11 +95,52 @@ if not 'analysis' in globals():
 # analysis.cluster_pseudo_torsion(overwrite_struct_files=True)
 
 # %%
-analysis.write_clusters(directory='/home/kevin/projects/tobias_schneider/new_cluster_analysis', clusters={'k6': [5, 9], 'k29': [0, 12], 'k33': [20]}, which='count_id')
-# analysis.run_per_cluster_analysis(overwrite_surface_coverage=True)
+# analysis.write_clusters(directory='/home/kevin/projects/tobias_schneider/new_cluster_analysis',
+#                         clusters={'k6': [5, 9], 'k29': [0, 12], 'k33': [20]}, which='count_id')
+analysis.run_per_cluster_analysis(overwrite_final_combination=True)
 
 # %% Single line calls
 analysis.plot_cluster_rmsds()
+
+# %% Save cluster_means
+from xplor.functions.analysis import h5load, h5store, make_linear_combination_from_clusters
+import pandas as pd
+import numpy as np
+
+old_df_file = '/home/kevin/projects/tobias_schneider/new_images/clusters.h5'
+new_df_file = '/home/kevin/projects/tobias_schneider/new_images/clusters_with_and_without_coeff.h5'
+
+with pd.HDFStore(old_df_file) as store:
+    df, metadata = h5load(store)
+    if isinstance(df.loc[0, 'internal RMSD'], np.ndarray):
+        df['internal RMSD'] = df['internal RMSD'].apply(np.var)
+
+sub_dfs = []
+for i, ubq_site in enumerate(analysis.ubq_sites):
+    sub_df = df[df['ubq site'] == ubq_site]
+    aa_cluster_nums = np.unique(analysis.aa_trajs[ubq_site].cluster_membership)
+    linear_combination, cluster_means = make_linear_combination_from_clusters(analysis.trajs[ubq_site],
+                                                                              analysis.df_comp_norm,
+                                                                              analysis.df_obs,
+                                                                              analysis.fast_exchangers,
+                                                                              ubq_site=ubq_site,
+                                                                              return_means=True)
+    exp_values = analysis.df_obs[ubq_site][analysis.df_obs[ubq_site].index.str.contains('sPRE')].values
+    mean_abs_diff_no_coeff = []
+    for cluster_num, cluster_mean in enumerate(cluster_means):
+        if cluster_num not in aa_cluster_nums:
+            print(f"Cluster {cluster_num} not in aa trajs")
+            continue
+        mean_abs_diff_no_coeff.append(np.mean(np.abs(cluster_mean - exp_values)))
+    print(len(cluster_means), len(mean_abs_diff_no_coeff))
+
+    sub_df = sub_df.rename(columns={'mean abs diff to exp': 'mean abs diff to exp w/ coeff'})
+    sub_df['mean abs diff to exp w/o coeff'] = mean_abs_diff_no_coeff
+    sub_dfs.append(sub_df)
+
+df = pd.concat(sub_dfs, ignore_index=True)
+h5store(new_df_file, df, **metadata)
+
 
 # %% Plot a single cluster
 analysis.plot_cluster(2, 'k6', overwrite=True, out_file='/home/kevin/projects/tobias_schneider/new_images/summary_single_cluster.png')

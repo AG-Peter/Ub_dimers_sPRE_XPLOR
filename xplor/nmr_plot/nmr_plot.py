@@ -183,7 +183,9 @@ def add_sequence_to_xaxis(ax, pdb_id='1UBQ', remove_solvent=True, sequence_annot
     return ax
 
 
-def plot_line_data(axes, df, df_index, color='C1', positions=['proximal', 'distal'], mask_15N=True):
+def plot_line_data(axes, df, df_index, color='C1', positions=None, mask_15N=True):
+    if positions is None:
+        positions = ['proximal', 'distal']
     df = df[df_index['cols']]
     out = []
     for ax, position in zip(axes, positions):
@@ -196,7 +198,9 @@ def plot_line_data(axes, df, df_index, color='C1', positions=['proximal', 'dista
     return out
 
 
-def plot_boxplots(axes, df, df_index, positions=['proximal', 'distal']):
+def plot_boxplots(axes, df, df_index, positions=None):
+    if positions is None:
+        positions = ['proximal', 'distal']
     df = df[df['ubq_site'] == df_index['cols']]
     out = []
     for ax, position in zip(axes, positions):
@@ -229,7 +233,7 @@ def get_color(colorRGBA1, colorRGBA2):
     return (int(red), int(green), int(blue), int(alpha))
 
 def plot_confidence_intervals(axes, df, df_index, cmap='Blues', cbar=True,
-                              alpha=0.2, positions=['proximal', 'distal'],
+                              alpha=0.2, positions=None,
                               trajs=None, cluster_num=None, cbar_axis=None,
                               with_outliers=True, outliers_offset=0.0):
     """Plots an envelope around min and max values.
@@ -241,6 +245,9 @@ def plot_confidence_intervals(axes, df, df_index, cmap='Blues', cbar=True,
             that defines what data needs to be extracted from df.
 
     """
+    if positions is None:
+        positions = ['proximal', 'distal']
+
     if trajs is not None:
         test = len(np.where(trajs.cluster_membership == cluster_num)[0])
         names = np.unique(trajs.name_arr[trajs.cluster_membership == cluster_num])
@@ -337,7 +344,10 @@ def plot_confidence_intervals(axes, df, df_index, cmap='Blues', cbar=True,
     else:
         return out, plot_color, (cmap(1), cmap(0))
 
-def plot_single_struct_sPRE(axes, traj, factors, ubq_site, color, positions=['proximal', 'distal']):
+def plot_single_struct_sPRE(axes, traj, factors, ubq_site, color, positions=None):
+    if positions is None:
+        positions = ['proximal', 'distal']
+
     traj_file = traj.traj_file
     top_file = traj.top_file
     traj = traj.traj
@@ -381,8 +391,11 @@ def plot_single_struct_sPRE(axes, traj, factors, ubq_site, color, positions=['pr
 
 
 def try_to_plot_15N(axes, ubq_site, mhz=600, cmap='Blues', cbar=True, alpha=0.2,
-                    positions=['proximal', 'distal'], trajs=None, cluster_num=None,
+                    positions=None, trajs=None, cluster_num=None,
                     cbar_axis=None, with_outliers=True, outliers_offset=0.0):
+    if positions is None:
+        positions = ['proximal', 'distal']
+
     files = glob.glob('/home/kevin/projects/tobias_schneider/values_from_every_frame/from_package_with_conect/*.csv')
     sorted_files = sorted(files, key=get_iso_time)
     df = pd.read_csv(sorted_files[-1], index_col=0)
@@ -393,7 +406,7 @@ def try_to_plot_15N(axes, ubq_site, mhz=600, cmap='Blues', cbar=True, alpha=0.2,
     return axes, color
 
 
-def plot_minmax_envelope(axes, df, df_index, color='lightgrey', alpha=0.8, positions=['proximal', 'distal']):
+def plot_minmax_envelope(axes, df, df_index, color='lightgrey', alpha=0.8, positions=None):
     """Plots an envelope around min and max values.
 
     Args:
@@ -403,6 +416,9 @@ def plot_minmax_envelope(axes, df, df_index, color='lightgrey', alpha=0.8, posit
             that defines what data needs to be extracted from df.
 
     """
+    if positions is None:
+        positions = ['proximal', 'distal']
+
     df = df[df['ubq_site'] == df_index['cols']]
     out = []
     for ax, position in zip(axes, positions):
@@ -417,7 +433,10 @@ def plot_minmax_envelope(axes, df, df_index, color='lightgrey', alpha=0.8, posit
     return out
 
 
-def plot_hatched_bars(axes, df, df_index, color='lightgrey', alpha=0.3, positions=['proximal', 'distal']):
+def plot_hatched_bars(axes, df, df_index, color='lightgrey', alpha=0.3, positions=None):
+    if positions is None:
+        positions = ['proximal', 'distal']
+
     df = df[df_index['cols']]
     out = []
     for ax, position in zip(axes, positions):
@@ -438,6 +457,84 @@ def color_labels(ax, positions, color='red'):
             print(positions)
             raise
     return ax
+
+
+def plot_correlation_plot(axes, df_obs, df_comp_norm, df_index, correlations,
+                     colors=None, positions=None, percent=False):
+    if positions is None:
+        positions = ['proximal', 'distal']
+
+    if colors is None:
+        colors = ['C0', 'c', 'grey', 'tab:olive']
+
+
+    df_obs = df_obs[df_index['cols']]
+    df_obs_data = []
+    for i, position in enumerate(positions):
+        index = [df_index['rows'] in ind and position in ind for ind in df_obs.index]
+        df_obs_data.append(df_obs[index].values)
+
+    df_comp_norm = df_comp_norm[df_comp_norm['ubq_site'] == df_index['cols']]
+    if df_comp_norm.isna().any(None):
+        df_comp_norm = df_comp_norm.fillna(0)
+
+    correl_data = [[], []]
+    for i, corr_type in enumerate(correlations):
+        if isinstance(corr_type, str):
+            for j, position in enumerate(positions):
+                index = [df_index['rows'] in col and position in col for col in df_comp_norm.columns]
+                index = df_comp_norm.columns[index]
+                if index.str.contains('normalized').any():
+                    index = index[index.str.contains('normalized')]
+                data = df_comp_norm[index].values
+                correl_data[j].append(data)
+                if corr_type == 'mean':
+                    correl_data[j][i] = np.mean(correl_data[j][i], 0)
+                else:
+                    raise Exception("Corr currently only supports 'mean'")
+        elif isinstance(corr_type, dict):
+            key = list(corr_type.keys())[0]
+            print(key)
+            if isinstance(corr_type[key], np.ndarray):
+                prox, dist = np.split(corr_type[key], 2)
+                correl_data[0].append(prox)
+                correl_data[1].append(dist)
+            else:
+                raise Exception("Corr currently only supports dict of np array.")
+        else:
+            raise Exception("Corr currenlty only supports str.")
+
+    out = []
+    assert len(correl_data[0]) == len(correlations), print([a.shape for a in correl_data[0]])
+    if len(correlations) == 2:
+        offsets = [-0.2, 0.2]
+        width = 0.4
+    elif len(correlations) == 3:
+        offsets = [-0.2, 0, 0.2]
+        width = 0.2
+    elif len(correlations) == 4:
+        offsets = [-0.4, -0.2, 0.0, 0.2]
+        width = 0.2
+
+    for i, dataset in enumerate(correlations):
+        sim_splitted = (correl_data[0][i], correl_data[1][i])
+        for j, ax in enumerate(axes):
+            sim = np.asarray(sim_splitted[j])
+            exp = np.asarray(df_obs_data[j])
+            assert len(sim) == len(exp), print(sim.shape, exp.shape)
+
+            if not percent:
+                diff = (sim - exp).flatten()
+            else:
+                diff = sim / exp * 100
+
+            if len(correlations) == 1:
+                ax.bar(np.arange(len(diff)), diff, color=[colors[i] for _ in range(len(diff))])
+            else:
+                x = np.arange(len(diff)) + offsets[i]
+                ax.bar(x, diff, align='center', width=width, color=[colors[i] for _ in range(len(diff))])
+
+    return axes
 
 
 def fake_legend(ax, dict_of_fake_labels, ncols=None):
