@@ -3,9 +3,10 @@
 ################################################################################
 import functools
 import itertools
-
 import matplotlib as mpl
+import matplotlib.axes
 import matplotlib.pyplot as plt
+import mdtraj
 import seaborn as sns
 import mdtraj as md
 import numpy as np
@@ -29,6 +30,15 @@ import cartopy.crs as ccrs
 from ..misc import get_iso_time
 from pprint import pprint
 from collections import OrderedDict
+
+
+################################################################################
+# Imports
+################################################################################
+
+
+from typing import List, Union, Tuple, Optional
+
 
 ################################################################################
 # Globals
@@ -205,7 +215,20 @@ def appendLonLatTraj(xyz):
     return new
 
 
-def center_ref_and_load(overwrite=False):
+def center_ref_and_load(overwrite: bool = False) -> Tuple[mdtraj.Trajectory, np.ndarray, np.ndarray]:
+    """Returns same basic information about 1UBQ.
+
+    Args:
+        overwrite (bool, optional): Whether to overwrite the locally stored file
+            at /home/kevin/1UBQ.pdb.
+
+    Returns:
+        tupel: A tupel containing the following:
+            md.Trajectory: The mdtraj.Trajectory of 1UBQ
+            np.ndarray: The indices of the C-alpha atoms.
+            np.ndarray: The names of the residues.
+
+    """
     centered_1UBQ = '/mnt/data/kevin/xplor_analysis_files/centered1UBQ.pdb'
     if not os.path.isfile(centered_1UBQ) or overwrite:
         traj = md.load_pdb('/home/kevin/1UBQ.pdb')
@@ -220,7 +243,10 @@ def center_ref_and_load(overwrite=False):
     return traj, CA_indices, resnames
 
 
-def add_reference_to_map(ax, step=5, rotate=False, pole_longitude=180, pole_latitude=90):
+def add_reference_to_map(ax, step: int = 5, rotate: bool = False,
+                         pole_longitude: float = 180.0,
+                         pole_latitude: float = 90.0) -> matplotlib.axes.Axes:
+    """"""
     traj, idx, labels = center_ref_and_load()
     scatter = traj.xyz[0, idx]
     scatter = appendLonLatFrame(scatter)
@@ -371,6 +397,118 @@ class EncodermapSPREAnalysis:
     def set_cluster_exclusions(self, new_exclusions={'k6': [], 'k29': [], 'k33': []}):
         print(f"Setting {new_exclusions}")
         self.cluster_exclusions = new_exclusions
+        
+    def get_mixed_correlation_plots(self, type_of_corr=None, overwrite=False,
+                                    coeff_threshold=0.1):
+        from scipy.stats import pearsonr
+        if type_of_corr is None:
+            type_of_corr = ['median_all', 'cluster_mean', 'cluster_mean']
+        for i, ubq_site in enumerate(self.ubq_sites):
+            image_name = f"/home/kevin/projects/tobias_schneider/new_cluster_analysis/{ubq_site}_correlation_regression.png"
+            if os.path.isfile and not overwrite:
+                print(f"File at {image_name} already exists.")
+                continue
+            print(i, ubq_site)
+
+            exp_value = self.df_obs[ubq_site][self.df_obs[ubq_site].index.str.contains('sPRE')].values
+
+            sub_df = self.df_comp_norm[self.df_comp_norm['ubq_site'] == ubq_site]
+            sPRE_ind = [i for i in sub_df.columns if 'sPRE' in i and 'norm' in i]
+
+            # create plot
+            plt.close('all')
+            if len(type_of_corr) == 1:
+                ncols = 1
+            elif len(type_of_corr) <= 6:
+                ncols = 2
+            else:
+                ncols = 3
+            nrows = len(type_of_corr) // ncols
+            nrows += len(type_of_corr) % ncols
+            figsize = (5 * ncols, 5 * nrows)
+            fig, axes = plt.subplots(ncols=ncols, nrows=nrows, sharex=True, sharey=True, figsize=figsize)
+
+            if len(type_of_corr) == 1:
+                axes = np.array([[axes]])
+            else:
+                pass
+
+            print('ncols: ', ncols, 'nrows: ', nrows)
+
+            linear_combination, cluster_means = make_linear_combination_from_clusters(self.trajs[ubq_site],
+                                                                                      self.df_comp_norm,
+                                                                                      self.df_obs,
+                                                                                      self.fast_exchangers,
+                                                                                      ubq_site=ubq_site,
+                                                                                      return_means=True)
+
+            # make linear combinations of everything and only the clusters
+            where = np.where(linear_combination > coeff_threshold)[0]
+            cluster_ids, counts = np.unique(self.aa_trajs[ubq_site].cluster_membership, return_counts=True)
+            count_ids = np.argsort(counts)
+            for c1, c2, count in zip(cluster_ids, count_ids, counts):
+                print(c1, c2, count)
+
+            raise Exception("STOP")
+            count_ids = []
+
+            for cluster_id in cluster_ids:
+                count_id = np.where(
+                    np.sort(sub_df['N frames'])[::-1] == sub_df[sub_df['cluster id'] == cluster_id][
+                        'N frames'].values)[0][0]
+                count_ids.append(count_id)
+            count_ids = np.array(count_ids)
+
+            coefficients_best_clusters = linear_combination[where]
+
+            iter_ = 0
+            cluster_iter = 0
+            for i in range(ncols):
+                for j in range(nrows):
+                    ax = axes[i, j]
+                    ax.set_xlabel(r'experimental sPRE in $\mathrm{mM^{-1}ms^{-1}}$')
+                    ax.set_ylabel(r'simulated sPRE in $\mathrm{mM^{-1}ms^{-1}}$')
+
+                    try:
+                        _ = type_of_corr[iter_]
+                    except IndexError:
+                        ax.axis('off')
+
+                    if type_of_corr[iter_] == 'median_all':
+                        q1, median, q2 = sub_df[sPRE_ind].quantile([0.25, 0.5, 0.75], axis='rows').values
+                        x = exp_value
+                        y = median
+                        coef = np.polyfit(x, y, 1)
+                        poly1d_fn = np.poly1d(coef)
+                        ax.plot(x, y, 'o', x, poly1d_fn(x), '--k')
+                        lower = q1 - y
+                        upper = y - q2
+                        ax.errorbar(x, y, yerr=(lower, upper), ls='none', c='C0')
+                        ax.set_title(type_of_corr[iter_])
+                        corr, _ = pearsonr(x, y)
+                        ax.text(0.8, 0.95, s=f'R = {corr:.2f}', va='center', ha='center', transform=ax.transAxes)
+                        iter_ += 1
+                        continue
+
+                    if type_of_corr[iter_] == 'cluster_mean':
+                        for coeff, cluster_id, count_id, color in zip(coefficients_best_clusters,
+                                                    cluster_ids[where], count_ids[where],
+                                                    ['C2', 'C3']):
+                            x = exp_value
+                            y = cluster_means[cluster_id]
+                            poly1d_fn = np.poly1d(coef)
+                            ax.plot(x, y, 'o', x, poly1d_fn(x), '--k')
+                            ax.set_title(type_of_corr[iter_] + str(count_id))
+                            corr, _ = pearsonr(x, y)
+                            ax.text(0.8, 0.95, s=f'R = {corr:.2f}', va='center', ha='center', transform=ax.transAxes)
+                        iter_ += 1
+                        continue
+
+                    
+            plt.savefig(image_name)
+            break
+
+
 
     def analyze_mean_abs_diff_all(self):
         for i, ubq_site in enumerate(self.ubq_sites):
@@ -413,6 +551,121 @@ class EncodermapSPREAnalysis:
             plt.savefig(image_name)
             break
 
+    def new_analyze(self, **overwrite_dict):
+        self.set_cluster_exclusions()
+        ow_dict = {'make_large_df': False}
+        ow_dict.update(overwrite_dict)
+        self.make_large_df(ow_dict['make_large_df'])
+
+    def make_large_df(self, overwrite=False, csv='all_frames'):
+        """Loads trajs, their lowd, their cluster membership and puts it into a large df."""
+        if not hasattr(self, 'original_df') or overwrite:
+            if csv == 'conect':
+                files = glob.glob(
+                    '/home/kevin/projects/tobias_schneider/values_from_every_frame/from_package_with_conect/*.csv')
+                sorted_files = sorted(files, key=get_iso_time)
+                csv = sorted_files[-1]
+            elif csv == 'no_conect':
+                files = glob.glob(
+                    '/home/kevin/projects/tobias_schneider/values_from_every_frame/from_package/*.csv')
+                sorted_files = sorted(files, key=get_iso_time)
+                csv = sorted_files[-1]
+            elif csv == 'all_frames':
+                files = glob.glob(
+                    '/home/kevin/projects/tobias_schneider/values_from_every_frame/from_package_all/*.csv')
+                sorted_files = sorted(files, key=get_iso_time)
+                csv = sorted_files[-1]
+            self.original_df = pd.read_csv(csv, index_col=0)
+            self.original_df['ubq_site'] = self.original_df['ubq_site'].str.lower()
+
+        if not hasattr(self, 'aa_df'):
+            df_file = '/mnt/data/kevin/xplor_analysis_files/lowd_and_xplor_df.csv'
+            if os.path.isfile(df_file) and not overwrite:
+                self.aa_df = pd.read_csv(df_file, index_col=0)
+            else:
+                sub_dfs = []
+                for i, ubq_site in enumerate(np.unique(self.original_df['ubq_site'])):
+                    sub_df = self.original_df[self.original_df['ubq_site'] == ubq_site]
+                    print(i, ubq_site)
+
+                    aa_traj_files = []
+                    aa_references = []
+                    for j, dir_ in enumerate(glob.glob(f"{self.sim_dirs[0]}{ubq_site}_*") + glob.glob(f'{self.sim_dirs[1]}{ubq_site.upper()}_*')):
+                        # define names
+                        traj_file = dir_ + '/traj_nojump.xtc'
+                        basename = traj_file.split('/')[-2]
+                        if 'andrejb' in traj_file:
+                            top_file = dir_ + '/start.pdb'
+                        else:
+                            top_file = dir_ + '/init.gro'
+
+                        is_aa = True
+                        if 'andrejb' in traj_file:
+                            if not is_aa_sim(traj_file): is_aa = False
+
+                        if is_aa:
+                            aa_traj_files.append(traj_file)
+                            aa_references.append(top_file)
+                        else:
+                            pass
+                            # cg_traj_files.append(traj_file)
+                            # cg_references.append(top_file)
+
+                    # load trajs
+                    aa_trajs = em.Info_all(trajs=aa_traj_files,
+                                           tops=aa_references,
+                                           basename_fn=lambda x: x.split('/')[-2],
+                                           common_str=[ubq_site, ubq_site.upper()])
+
+                    # load lowd
+                    e_map = em.EncoderMap.from_checkpoint(
+                        f'/mnt/data/kevin/xplor_analysis_files/runs/{ubq_site}/production_run_tf2/saved_model_100000.model*')
+                    highd = np.load(f'/mnt/data/kevin/xplor_analysis_files/highd_rwmd_aa_{ubq_site}.npy')
+                    lowd = e_map.encode(highd)
+                    aa_trajs.load_CVs(lowd, 'lowd')
+
+                    # load clustering
+                    cluster_membership = np.load(f'/mnt/data/kevin/xplor_analysis_files/cluster_membership_aa_{ubq_site}.npy')
+                    aa_trajs.load_CVs(cluster_membership, 'cluster_membership')
+
+                    # prepare data to be stored in df
+                    files_arr = []
+                    frames_arr = []
+                    index_arr = aa_trajs.index_arr
+                    for traj in aa_trajs:
+                        files_arr.extend([traj.traj_file for i in range(traj.n_frames)])
+                        frames_arr.extend([i for i in range(traj.n_frames)])
+                    files_arr = np.array(files_arr)
+                    frames_arr = np.array(frames_arr)
+                    x = []
+                    y = []
+                    cluster_membership = []
+
+                    for j, row in sub_df.iterrows():
+                        where_file = files_arr == row['traj_file']
+                        where_frame = frames_arr == row['frame']
+                        where = np.where(np.logical_and(where_file, where_frame))[0]
+                        assert len(where) == 1
+                        where = where[0]
+                        try:
+                            traj_index, frame_index = index_arr[where]
+                        except ValueError:
+                            print(where)
+                            raise
+                        x.append(aa_trajs[traj_index][frame_index].lowd[0])
+                        y.append(aa_trajs[traj_index][frame_index].lowd[1])
+                        cluster_membership.append(aa_trajs[traj_index][frame_index].cluster_membership)
+
+                    sub_df['x'] = x
+                    sub_df['y'] = y
+                    sub_df['cluster_membership'] = cluster_membership
+                    sub_dfs.append(sub_df)
+                    del e_map
+                    del aa_trajs
+
+                self.aa_df = pd.concat(sub_dfs, ignore_index=True)
+                self.aa_df.to_csv(df_file)
+
     def analyze(self, **overwrite_dict):
         """Start the analysis
 
@@ -440,14 +693,14 @@ class EncodermapSPREAnalysis:
         self.train_encodermap(overwrite=ow_dict['train_encodermap'])
         self.load_xplor_data(overwrite=ow_dict['load_xplor_data'])
         self.cluster(overwrite=ow_dict['cluster'])
-        # self.cluster_analysis(overwrite=ow_dict['cluster_analysis'])
-        # self.where_is_best_fitting_point(overwrite=ow_dict['where_is_best_fitting_point'])
-        # self.find_lowest_diffs_in_all_quality_factors(overwrite=ow_dict['find_lowest_diffs_in_all_quality_factors'])
-        # self.plot_cluster_rmsds(overwrite=ow_dict['plot_cluster_rmsds'])
-        # self.fitness_assessment(overwrite=ow_dict['fitness_assessment'])
-        # self.get_surface_coverage(overwrite=ow_dict['get_surface_coverage'])
-        # self.distance_vs_pseudo_torsion(overwrite=ow_dict['distance_vs_pseudo_torsion'])
-        # self.cluster_pseudo_torsion(overwrite=ow_dict['cluster_pseudo_torsion'])
+        self.cluster_analysis(overwrite=ow_dict['cluster_analysis'])
+        self.where_is_best_fitting_point(overwrite=ow_dict['where_is_best_fitting_point'])
+        self.find_lowest_diffs_in_all_quality_factors(overwrite=ow_dict['find_lowest_diffs_in_all_quality_factors'])
+        self.plot_cluster_rmsds(overwrite=ow_dict['plot_cluster_rmsds'])
+        self.fitness_assessment(overwrite=ow_dict['fitness_assessment'])
+        self.get_surface_coverage(overwrite=ow_dict['get_surface_coverage'])
+        self.distance_vs_pseudo_torsion(overwrite=ow_dict['distance_vs_pseudo_torsion'])
+        self.cluster_pseudo_torsion(overwrite=ow_dict['cluster_pseudo_torsion'])
 
     def check_attr_all(self, attr_name):
         for ubq_site in self.ubq_sites:
@@ -731,7 +984,7 @@ class EncodermapSPREAnalysis:
                 sim_value = np.sum(coefficients_best_clusters * cluster_means[where].T, 1)
                 fig, (ax1, ax2,) = plt.subplots(nrows=2, figsize=(20, 10))
 
-                from xplor.nmr_plot import plot_line_data
+                from xplor.nmr_plot import plot_line_data, plot_hatched_bars
 
                 (ax1, ax2) = plot_line_data((ax1, ax2), self.df_obs, {'rows': 'sPRE', 'cols': ubq_site})
                 (ax1, ax2) = plot_hatched_bars((ax1, ax2), self.fast_exchangers, {'cols': 'k6'}, color='k')
@@ -744,7 +997,9 @@ class EncodermapSPREAnalysis:
                     prox, dist = np.split(cluster_means[cluster_id], 2)
                     ax1.plot(prox, c=color)
                     ax2.plot(dist, c=color)
-                    mean_abs_diff = sub_df['mean abs diff to exp'][cluster_id]
+                    # old mean abs diff
+                    # mean_abs_diff = sub_df['mean abs diff to exp'][cluster_id]
+                    mean_abs_diff = np.mean(np.abs(sim_value - cluster_means[cluster_id])[~ self.fast_exchangers[ubq_site]])
                     print(count_id, mean_abs_diff)
                     # ax1.text(0.95, hpos, f"mean abs diff exp/sim cluster {count_id} = {mean_abs_diff:.1f}",
                     #      transform=ax1.transAxes, ha='right', va='center')
@@ -757,18 +1012,18 @@ class EncodermapSPREAnalysis:
                     ax = color_labels(ax, positions=centers)
                     ax.set_ylabel(r'sPRE in $\mathrm{mM^{-1}ms^{-1}}$')
 
-                mean_abs_diff = np.mean(np.abs(sim_value - exp_value))
-                ax1.text(0.95, 0.80, f"mean abs diff exp/sim {cluster_combination_str_no_underscore} = {mean_abs_diff:.1f}",
-                         transform=ax1.transAxes, ha='right', va='center')
+                mean_abs_diff = np.mean(np.abs(sim_value - exp_value)[~ self.fast_exchangers[ubq_site]])
+                # ax1.text(0.95, 0.80, f"mean abs diff exp/sim {cluster_combination_str_no_underscore} = {mean_abs_diff:.1f}",
+                #          transform=ax1.transAxes, ha='right', va='center')
                 
                 fake_legend_dict1 = {'line': [{'label': 'NMR experiment', 'color': 'C1'},
-                                              {'label': f'combination of cluster {cluster_combination_str_no_underscore}', 'color': color},
+                                              {'label': f'combination of cluster {cluster_combination_str_no_underscore}', 'color': 'C0'},
                                               {'label': f'mean of cluster {count_ids[where][0]} (without coefficient)', 'color': 'C2'}],
                                     'hatchbar': [{'label': 'Fast exchanging residues', 'color': 'lightgrey', 'alpha': 0.3, 'hatch': '//'}],
                                     'text': [{'label': 'Residue used for normalization', 'color': 'red', 'text': 'Ile3'}]}
 
                 if ubq_site != 'k33':
-                    fake_legend_dict1['line'].append({'label': f'mean of cluster {count_ids[where][1]}', 'color': 'C3'})
+                    fake_legend_dict1['line'].append({'label': f'mean of cluster {count_ids[where][1]} (without coefficient)', 'color': 'C3'})
                 fake_legend(ax1, fake_legend_dict1)
                 plt.tight_layout()
                 plt.savefig(final_combination_image)
@@ -816,7 +1071,7 @@ class EncodermapSPREAnalysis:
                 plt.close('all')
                 fig, (ax1, ax2,) = plt.subplots(nrows=2, figsize=(20, 10))
 
-                from xplor.nmr_plot import plot_correlation_plot
+                from xplor.nmr_plot import plot_correlation_plot, plot_hatched_bars
 
                 where = np.where(sub_df['coefficient'] > coeff_threshold)[0]
                 cluster_ids = sub_df['cluster id'].values
@@ -829,7 +1084,10 @@ class EncodermapSPREAnalysis:
                 count_ids = np.array(count_ids)
 
                 fake_legend_dict1 = {'envelope': [{'label': 'median all', 'color': 'C0'},
-                                                  {'label': 'cluster combination', 'color': 'c'}]
+                                                  {'label': 'cluster combination', 'color': 'c'}],
+                                     'hatchbar': [
+                                         {'label': 'Fast exchanging residues', 'color': 'lightgrey', 'alpha': 0.3,
+                                          'hatch': '//'}]
                                      }
 
                 clusters_to_plot = []
@@ -841,6 +1099,8 @@ class EncodermapSPREAnalysis:
                 print('cluster_ids: ', where, 'count_ids: ', count_ids)
                 sim_value = np.sum(coefficients_best_clusters * cluster_means[where].T, 1)
                 to_plot = ['mean', {'final_combination': sim_value}] + clusters_to_plot
+
+                (ax1, ax2) = plot_hatched_bars((ax1, ax2), self.fast_exchangers, {'cols': 'k6'}, color='k')
                 (ax1, ax2) = plot_correlation_plot((ax1, ax2), self.df_obs, self.df_comp_norm, {'rows': 'sPRE', 'cols': ubq_site},
                                                    correlations=to_plot)
 

@@ -15,7 +15,7 @@ import cartopy.crs as ccrs
 
 import sys, re, glob, os, itertools, pyemma, json, hdbscan, copy
 
-# %%
+# %% delete old csvs
 xplor.misc.delete_old_csvs('/home/kevin/projects/tobias_schneider/values_from_every_frame/from_package_all/',
                             suffix='_df_no_conect.csv', )
 
@@ -31,7 +31,7 @@ for root, dirs, files in os.walk("/home/kevin/projects/tobias_schneider/"):
                 print(_['learning_rate'])
                 print(_['n_neurons'])
 
-# %% load and plot
+# %% load and plot fitness assessment extra
 import json, os
 import matplotlib.pyplot as plt
 import numpy as np
@@ -61,40 +61,21 @@ for ubq_site in ubq_sites:
         ax.set_ylabel("Mean abs difference between exp and sim")
         plt.savefig(image_file)
 
-# %% mean inertia tensor
-import xplor
 
+# %% develop an analysis function
+import xplor
 if not 'analysis' in globals():
     analysis = xplor.functions.EncodermapSPREAnalysis(['k6', 'k29', 'k33'])
-    analysis.load_xplor_data()
     analysis.load_trajs()
     analysis.load_highd()
     analysis.train_encodermap()
+    analysis.load_xplor_data()
     analysis.cluster()
-# analysis.fitness_assessment(overwrite=True)
-analysis.analyze_mean_abs_diff_all()
+# analysis.new_analyze()
+# analysis.run_per_cluster_analysis(overwrite_final_combination=True)
+analysis.get_mixed_correlation_plots(overwrite=True)
 
-
-# %% develop an analysis function
-if not 'analysis' in globals():
-    analysis = xplor.functions.EncodermapSPREAnalysis(['k6', 'k29', 'k33'])
-    # analysis = xplor.functions.EncodermapSPREAnalysis(['k6'])
-    # analysis = xplor.functions.EncodermapSPREAnalysis(['k29'])
-    # analysis = xplor.functions.EncodermapSPREAnalysis(['k33'])
-# analysis.set_cluster_exclusions({'k6': [3], 'k29': [7], 'k33': [6]})
-# analysis.analyze(fitness_assessment=True)
-# analysis.load_xplor_data(overwrite=True)
-# analysis.cluster_analysis(overwrite=True)
-# analysis.fitness_assessment(overwrite=True)
-# analysis.where_is_best_fitting_point()
-# analysis.find_lowest_diffs_in_all_quality_factors(overwrite=True)
-# analysis.plot_cluster_rmsds()
-# analysis.get_surface_coverage(overwrite_image=True)
-# analysis.get_mean_tensor_of_inertia(overwrite=True)
-# analysis.distance_vs_pseudo_torsion(overwrite_image=True)
-# analysis.cluster_pseudo_torsion(overwrite_struct_files=True)
-
-# %%
+# %% new per cluster analysis
 # analysis.write_clusters(directory='/home/kevin/projects/tobias_schneider/new_cluster_analysis',
 #                         clusters={'k6': [5, 9], 'k29': [0, 12], 'k33': [20]}, which='count_id')
 analysis.run_per_cluster_analysis(overwrite_final_combination=True)
