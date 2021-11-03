@@ -1485,7 +1485,7 @@ def get_series_from_mdtraj(frame, traj_file, top_file, frame_no, testing=False,
 
 
 def make_linear_combination_from_clusters(trajs, df, df_obs, fast_exchangers, ubq_site, return_means=False, cluster_nums=None,
-                                          exclusions=[], new_method=True):
+                                          exclusions=[], new_method=True, return_non_norm_means=False):
     """Makes a linear combination from sPRE values and clustered trajs.
 
     Args:
@@ -1510,6 +1510,7 @@ def make_linear_combination_from_clusters(trajs, df, df_obs, fast_exchangers, ub
 
     df = df[df['ubq_site'] == ubq_site]
     sPRE_ind = [i for i in df.columns if 'sPRE' in i and 'norm' in i]
+    non_norm_sPRE_ind =  [i for i in df.columns if 'sPRE' in i and 'norm' not in i]
 
     # put cluster membership into df
     cluster_membership_sPRE = []
@@ -1522,6 +1523,7 @@ def make_linear_combination_from_clusters(trajs, df, df_obs, fast_exchangers, ub
     # calculcate the per-cluster per-residue means
     cluster_means = []
     cluster_means_out = np.zeros((df['cluster_membership'].max() + 1, 152))
+    non_norm_means_out = np.zeros((df['cluster_membership'].max() + 1, 152))
     if cluster_nums is None:
         solv = np.zeros(df['cluster_membership'].max() + 1)
         for cluster_num in np.unique((df['cluster_membership'])):
@@ -1530,13 +1532,17 @@ def make_linear_combination_from_clusters(trajs, df, df_obs, fast_exchangers, ub
             if cluster_num in exclusions:
                 continue
             mean = np.median(df[sPRE_ind][df['cluster_membership'] == cluster_num], axis=0)
+            non_norm_mean = np.median(df[non_norm_sPRE_ind][df['cluster_membership'] == cluster_num], axis=0)
             cluster_means.append(mean)
             cluster_means_out[cluster_num] = mean
+            non_norm_means_out[cluster_num] = non_norm_mean
     else:
         for cluster_num in cluster_nums:
             mean = np.median(df[sPRE_ind][df['cluster_membership'] == cluster_num], axis=0)
+            non_norm_mean = np.median(df[non_norm_sPRE_ind][df['cluster_membership'] == cluster_num], axis=0)
             cluster_means.append(mean)
             cluster_means_out[cluster_num] = mean
+            non_norm_means_out[cluster_num] = non_norm_mean
     cluster_means = np.vstack(cluster_means)
     # print(cluster_means.shape, obs.shape)
     # print(np.any(np.isnan(cluster_means)))
@@ -1586,7 +1592,6 @@ def make_linear_combination_from_clusters(trajs, df, df_obs, fast_exchangers, ub
         else:
             solv = res.x
 
-
     # make linear combination
     # x = scipy.optimize.lsq_linear(cluster_means.T[~fast_exchange], obs[~fast_exchange], bounds=(0, 1))
     # argsort = np.argsort(x.x)[::-1]
@@ -1596,8 +1601,10 @@ def make_linear_combination_from_clusters(trajs, df, df_obs, fast_exchangers, ub
 
     assert np.isclose(np.sum(solv), 1)
     try:
-        if return_means:
+        if return_means and not return_non_norm_means:
             return solv, cluster_means_out
+        elif return_non_norm_means:
+            return solv, cluster_means_out, non_norm_means_out
         return solv
     except ValueError:
         print(return_means)

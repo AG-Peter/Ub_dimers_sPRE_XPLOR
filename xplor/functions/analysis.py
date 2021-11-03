@@ -402,13 +402,13 @@ class EncodermapSPREAnalysis:
                                     coeff_threshold=0.1):
         from scipy.stats import pearsonr
         if type_of_corr is None:
-            type_of_corr = ['median_all', 'cluster_mean', 'cluster_mean']
-        for i, ubq_site in enumerate(self.ubq_sites):
+            type_of_corr = ['median_all', 'cluster_mean', 'cluster_mean', 'cluster_combination', 'all_combination']
+        for ubq_site_counting, ubq_site in enumerate(self.ubq_sites):
             image_name = f"/home/kevin/projects/tobias_schneider/new_cluster_analysis/{ubq_site}_correlation_regression.png"
             if os.path.isfile and not overwrite:
                 print(f"File at {image_name} already exists.")
                 continue
-            print(i, ubq_site)
+            print(ubq_site_counting, ubq_site)
 
             exp_value = self.df_obs[ubq_site][self.df_obs[ubq_site].index.str.contains('sPRE')].values
 
@@ -431,9 +431,18 @@ class EncodermapSPREAnalysis:
             if len(type_of_corr) == 1:
                 axes = np.array([[axes]])
             else:
-                pass
+                list_of_axes = axes.flatten()
 
             print('ncols: ', ncols, 'nrows: ', nrows)
+
+            with pd.HDFStore(
+                    '/home/kevin/projects/tobias_schneider/new_images/clusters_with_and_without_coeff.h5') as store:
+                df, metadata = h5load(store)
+
+            cluster_df = df[df['ubq site'] == ubq_site]
+            cluster_df = cluster_df.sort_values('N frames', ascending=False)
+            cluster_df['count id'] = np.arange(len(cluster_df))
+            cluster_df['color'] = [f'C{_}' for _ in range(1, len(cluster_df) + 1)]
 
             linear_combination, cluster_means = make_linear_combination_from_clusters(self.trajs[ubq_site],
                                                                                       self.df_comp_norm,
@@ -442,29 +451,10 @@ class EncodermapSPREAnalysis:
                                                                                       ubq_site=ubq_site,
                                                                                       return_means=True)
 
-            # make linear combinations of everything and only the clusters
-            where = np.where(linear_combination > coeff_threshold)[0]
-            cluster_ids, counts = np.unique(self.aa_trajs[ubq_site].cluster_membership, return_counts=True)
-            count_ids = np.argsort(counts)
-            for c1, c2, count in zip(cluster_ids, count_ids, counts):
-                print(c1, c2, count)
-
-            raise Exception("STOP")
-            count_ids = []
-
-            for cluster_id in cluster_ids:
-                count_id = np.where(
-                    np.sort(sub_df['N frames'])[::-1] == sub_df[sub_df['cluster id'] == cluster_id][
-                        'N frames'].values)[0][0]
-                count_ids.append(count_id)
-            count_ids = np.array(count_ids)
-
-            coefficients_best_clusters = linear_combination[where]
-
             iter_ = 0
-            cluster_iter = 0
-            for i in range(ncols):
-                for j in range(nrows):
+            cluster_mean_plotted = False
+            for i in range(nrows):
+                for j in range(ncols):
                     ax = axes[i, j]
                     ax.set_xlabel(r'experimental sPRE in $\mathrm{mM^{-1}ms^{-1}}$')
                     ax.set_ylabel(r'simulated sPRE in $\mathrm{mM^{-1}ms^{-1}}$')
@@ -472,7 +462,8 @@ class EncodermapSPREAnalysis:
                     try:
                         _ = type_of_corr[iter_]
                     except IndexError:
-                        ax.axis('off')
+                        # ax.axis('off')
+                        continue
 
                     if type_of_corr[iter_] == 'median_all':
                         q1, median, q2 = sub_df[sPRE_ind].quantile([0.25, 0.5, 0.75], axis='rows').values
@@ -490,25 +481,189 @@ class EncodermapSPREAnalysis:
                         iter_ += 1
                         continue
 
-                    if type_of_corr[iter_] == 'cluster_mean':
-                        for coeff, cluster_id, count_id, color in zip(coefficients_best_clusters,
-                                                    cluster_ids[where], count_ids[where],
-                                                    ['C2', 'C3']):
+                    if type_of_corr[iter_] == 'cluster_mean' and not cluster_mean_plotted:
+                        for row_num, row in cluster_df.iterrows():
+                            if ubq_site == 'k6':
+                                if row['count id'] not in [5, 9]:
+                                    continue
+                            if ubq_site == 'k29':
+                                if row['count id'] not in [0, 12]:
+                                    continue
+                            if ubq_site == 'k33':
+                                if row['count id'] not in [20]:
+                                    continue
+
+                            ax = list_of_axes[iter_]
+                            coeff = row['coefficient']
+                            color = row['color']
+                            cluster_id = row['cluster id']
+                            count_id = row['count id']
                             x = exp_value
                             y = cluster_means[cluster_id]
+                            coef = np.polyfit(x, y, 1)
                             poly1d_fn = np.poly1d(coef)
                             ax.plot(x, y, 'o', x, poly1d_fn(x), '--k')
                             ax.set_title(type_of_corr[iter_] + str(count_id))
                             corr, _ = pearsonr(x, y)
                             ax.text(0.8, 0.95, s=f'R = {corr:.2f}', va='center', ha='center', transform=ax.transAxes)
+                            iter_ += 1
+                        cluster_mean_plotted = True
+                        continue
+
+                    if type_of_corr[iter_] == 'all_combination':
+                        ax = axes[2, 0]
+                        sim_value = np.sum(linear_combination * cluster_means.T, 1)
+                        y = sim_value
+                        coef = np.polyfit(x, y, 1)
+                        poly1d_fn = np.poly1d(coef)
+                        ax.plot(x, y, 'o', x, poly1d_fn(x), '--k')
+                        ax.set_title(type_of_corr[iter_])
+                        corr, _ = pearsonr(x, y)
+                        ax.text(0.8, 0.95, s=f'R = {corr:.2f}', va='center', ha='center', transform=ax.transAxes)
                         iter_ += 1
                         continue
 
-                    
+                    if type_of_corr[iter_] == 'cluster_combination':
+                        if ubq_site == 'k6':
+                            clusters = [5, 9]
+                        if ubq_site == 'k29':
+                            clusters = [0, 12]
+                        if ubq_site == 'k33':
+                            clusters = [20]
+                        ax = axes[1, 1]
+                        where = [i in clusters for i in cluster_df['count id']]
+                        cluster_ids = cluster_df[where]['cluster id']
+                        coeffs = cluster_df[where]['coefficient'].values
+                        sim_value = np.sum(coeffs * cluster_means[cluster_ids].T, 1)
+                        y = sim_value
+                        coef = np.polyfit(x, y, 1)
+                        poly1d_fn = np.poly1d(coef)
+                        ax.plot(x, y, 'o', x, poly1d_fn(x), '--k')
+                        ax.set_title(type_of_corr[iter_])
+                        corr, _ = pearsonr(x, y)
+                        ax.text(0.8, 0.95, s=f'R = {corr:.2f}', va='center', ha='center', transform=ax.transAxes)
+                        iter_ += 1
+                        continue
+
+            if ubq_site == 'k33':
+                ax = axes[2, 0]
+                sim_value = np.sum(linear_combination * cluster_means.T, 1)
+                y = sim_value
+                coef = np.polyfit(x, y, 1)
+                poly1d_fn = np.poly1d(coef)
+                ax.plot(x, y, 'o', x, poly1d_fn(x), '--k')
+                ax.set_title('all_combination')
+                corr, _ = pearsonr(x, y)
+                ax.text(0.8, 0.95, s=f'R = {corr:.2f}', va='center', ha='center', transform=ax.transAxes)
             plt.savefig(image_name)
-            break
 
+    def prepare_csv_files(self, overwrite=False):
+        with pd.HDFStore(
+                '/home/kevin/projects/tobias_schneider/new_images/clusters_with_and_without_coeff.h5') as store:
+            df, metadata = h5load(store)
 
+        for ubq_count, ubq_site in enumerate(self.ubq_sites):
+            csv_file = f'/home/kevin/projects/tobias_schneider/new_cluster_analysis/per_residue_values_and_combinations_{ubq_site}.csv'
+            linear_combination, cluster_means_norm, cluster_mean_not_norm = make_linear_combination_from_clusters(self.trajs[ubq_site],
+                                                                                      self.df_comp_norm,
+                                                                                      self.df_obs,
+                                                                                      self.fast_exchangers,
+                                                                                      ubq_site=ubq_site,
+                                                                                      return_means=True,
+                                                                                      return_non_norm_means=True)
+
+            cluster_df = df[df['ubq site'] == ubq_site]
+            cluster_df = cluster_df.sort_values('N frames', ascending=False)
+            cluster_df['count id'] = np.arange(len(cluster_df))
+            cluster_df['color'] = [f'C{_}' for _ in range(1, len(cluster_df) + 1)]
+            # for i, row in cluster_df.iterrows():
+            #     print(row['cluster id'], linear_combination[row['cluster id']], row['coefficient'])
+
+            out_df = {'cluster id (count)': [], 'coefficient': []}
+
+            columns_norm = [i for i in self.df_comp_norm.columns if 'sPRE' in i and 'norm' in i]
+            test_index = columns_norm[0]
+            # columns_norm = [f'median (without coeff) {i}' for i in columns_norm_]
+            columns_non_norm = [i for i in self.df_comp_norm.columns if 'sPRE' in i and 'norm' not in i]
+            # columns_non_norm = [f'median (without coeff) {i}' for i in columns_non_norm_]
+            out_df.update({i: [] for i in columns_norm})
+            out_df.update({i: [] for i in columns_non_norm})
+
+            print(cluster_means_norm[0, :5])
+            print(cluster_mean_not_norm[0, :5])
+
+            # iterate over clusters
+            for i, row in cluster_df.iterrows():
+                out_df['cluster id (count)'].append(row['count id'])
+                out_df['coefficient'].append(row['coefficient'])
+                for col_norm, val_norm in zip(columns_norm, cluster_means_norm[row['cluster id']]):
+                    out_df[col_norm].append(val_norm)
+                for col_non_norm, val_non_norm in zip(columns_non_norm, cluster_mean_not_norm[row['cluster id']]):
+                    out_df[col_non_norm].append(val_non_norm)
+                # print(len(out_df[test_index]))
+
+            # get full combination
+            final_combination = np.sum(linear_combination * cluster_means_norm.T, 1)
+            out_df['cluster id (count)'].append('all combination')
+            out_df['coefficient'].append(np.nan)
+            for col_norm, val_combi in zip(columns_norm, final_combination):
+                out_df[col_norm].append(val_combi)
+            for col_non_norm in columns_non_norm:
+                out_df[col_non_norm].append(np.nan)
+            # print(len(out_df[test_index]))
+
+            # get median of all
+            _ = self.df_comp_norm[self.df_comp_norm['ubq_site'] == ubq_site]
+            median_all_norm = np.median(_[columns_norm], 0)
+            median_all_non_norm = np.median(_[columns_non_norm], 0)
+            out_df['cluster id (count)'].append('all median')
+            out_df['coefficient'].append(np.nan)
+            for iter_, (col_norm, val_norm) in enumerate(zip(columns_norm, median_all_norm)):
+                if iter_ in [0, 1, 2, 3]:
+                    print(iter_, col_norm, val_norm)
+                out_df[col_norm].append(val_norm)
+            for iter_, (col_non_norm, val_non_norm) in enumerate(zip(columns_non_norm, median_all_non_norm)):
+                if iter_ in [0, 1, 2, 3]:
+                    print(iter_, col_non_norm, val_non_norm)
+                out_df[col_non_norm].append(val_non_norm)
+            # print(len(out_df[test_index]))
+
+            # get limited combination
+            if ubq_site == 'k6':
+                clusters = [5, 9]
+                clusters_str = 'combination of clusters 5 and 9'
+            if ubq_site == 'k29':
+                clusters = [0, 12]
+                clusters_str = 'combination of clusters 0 and 12'
+            if ubq_site == 'k33':
+                clusters = [20]
+                clusters_str = 'cluster 20 with coefficient'
+
+            # get the cluster ids
+            cluster_ids = []
+            coefficients = []
+            for i, row in cluster_df.iterrows():
+                if row['count id'] in clusters:
+                    cluster_ids.append(row['cluster id'])
+                    coefficients.append(row['coefficient'])
+            cluster_ids = np.array(cluster_ids)
+            coefficients = np.array(coefficients)
+            cluster_combination = np.sum(coefficients * cluster_means_norm[cluster_ids].T, 1)
+            out_df['cluster id (count)'].append(clusters_str)
+            out_df['coefficient'].append(np.nan)
+            for col_norm, val_clu_combi in zip(columns_norm, cluster_combination):
+                out_df[col_norm].append(val_clu_combi)
+            for col_non_norm in columns_non_norm:
+                out_df[col_non_norm].append(np.nan)
+            # print(len(out_df[test_index]))
+
+            out_df = pd.DataFrame(out_df)
+            out_df[columns_norm + columns_non_norm] = out_df[columns_norm + columns_non_norm].replace(0, np.nan)
+            out_df.to_csv(csv_file)
+            out_df.to_excel(csv_file.replace('.csv', '.xlsx'))
+
+    def fix_broken_pdbs(self):
+        for dir_ in glob.glob('/home/kevin/projects/tobias_schneider/new_cluster_analysis')
 
     def analyze_mean_abs_diff_all(self):
         for i, ubq_site in enumerate(self.ubq_sites):
@@ -1267,7 +1422,7 @@ class EncodermapSPREAnalysis:
             self.cg_trajs[ubq_site].load_CVs(cg_lowd, attr_name='lowd')
 
     def load_xplor_data(self, overwrite=False,
-                        csv='all_frames'):
+                        csv='conect'):
         if all([hasattr(self, _) for _ in ['df_obs', 'fast_exchangers', 'in_secondary', 'df_comp_norm', 'norm_factors']]) and not overwrite:
             print("XPLOR data already loaded")
             return
@@ -1287,6 +1442,8 @@ class EncodermapSPREAnalysis:
                 '/home/kevin/projects/tobias_schneider/values_from_every_frame/from_package_all/*.csv')
             sorted_files = sorted(files, key=get_iso_time)
             csv = sorted_files[-1]
+        elif csv == 'legacy':
+            csv = '/home/kevin/projects/tobias_schneider/values_from_every_frame/from_package/2021-07-23T16:49:44+02:00_df_no_conect.csv'
         df_comp = pd.read_csv(csv, index_col=0)
         if not 'ubq_site' in df_comp.keys():
             df_comp['ubq_site'] = df_comp['traj_file'].map(get_ubq_site)

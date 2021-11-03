@@ -69,11 +69,13 @@ if not 'analysis' in globals():
     analysis.load_trajs()
     analysis.load_highd()
     analysis.train_encodermap()
-    analysis.load_xplor_data()
     analysis.cluster()
+# analysis.load_xplor_data('no_conect')
 # analysis.new_analyze()
 # analysis.run_per_cluster_analysis(overwrite_final_combination=True)
-analysis.get_mixed_correlation_plots(overwrite=True)
+# analysis.get_mixed_correlation_plots(overwrite=True)
+analysis.prepare_csv_files(overwrite=True)
+
 
 # %% new per cluster analysis
 # analysis.write_clusters(directory='/home/kevin/projects/tobias_schneider/new_cluster_analysis',
