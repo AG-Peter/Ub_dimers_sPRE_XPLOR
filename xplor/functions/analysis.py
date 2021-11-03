@@ -589,18 +589,18 @@ class EncodermapSPREAnalysis:
             out_df.update({i: [] for i in columns_norm})
             out_df.update({i: [] for i in columns_non_norm})
 
-            print(cluster_means_norm[0, :5])
-            print(cluster_mean_not_norm[0, :5])
-
             # iterate over clusters
             for i, row in cluster_df.iterrows():
                 out_df['cluster id (count)'].append(row['count id'])
                 out_df['coefficient'].append(row['coefficient'])
-                for col_norm, val_norm in zip(columns_norm, cluster_means_norm[row['cluster id']]):
+                for resid, (col_norm, col_non_norm, val_norm, val_non_norm) in enumerate(zip(columns_norm, columns_non_norm, cluster_means_norm[row['cluster id']], cluster_mean_not_norm[row['cluster id']])):
                     out_df[col_norm].append(val_norm)
-                for col_non_norm, val_non_norm in zip(columns_non_norm, cluster_mean_not_norm[row['cluster id']]):
                     out_df[col_non_norm].append(val_non_norm)
-                # print(len(out_df[test_index]))
+                    if resid < 76:
+                        factor = self.norm_factors[ubq_site][0]
+                    else:
+                        factor = self.norm_factors[ubq_site][1]
+                    print(val_norm / val_non_norm, factor)
 
             # get full combination
             final_combination = np.sum(linear_combination * cluster_means_norm.T, 1)
@@ -619,12 +619,12 @@ class EncodermapSPREAnalysis:
             out_df['cluster id (count)'].append('all median')
             out_df['coefficient'].append(np.nan)
             for iter_, (col_norm, val_norm) in enumerate(zip(columns_norm, median_all_norm)):
-                if iter_ in [0, 1, 2, 3]:
-                    print(iter_, col_norm, val_norm)
+                # if iter_ in [0, 1, 2, 3]:
+                #     print(iter_, col_norm, val_norm)
                 out_df[col_norm].append(val_norm)
             for iter_, (col_non_norm, val_non_norm) in enumerate(zip(columns_non_norm, median_all_non_norm)):
-                if iter_ in [0, 1, 2, 3]:
-                    print(iter_, col_non_norm, val_non_norm)
+                # if iter_ in [0, 1, 2, 3]:
+                #     print(iter_, col_non_norm, val_non_norm)
                 out_df[col_non_norm].append(val_non_norm)
             # print(len(out_df[test_index]))
 
@@ -663,7 +663,8 @@ class EncodermapSPREAnalysis:
             out_df.to_excel(csv_file.replace('.csv', '.xlsx'))
 
     def fix_broken_pdbs(self):
-        for dir_ in glob.glob('/home/kevin/projects/tobias_schneider/new_cluster_analysis')
+        for dir_ in glob.glob('/home/kevin/projects/tobias_schneider/new_cluster_analysis'):
+            pass
 
     def analyze_mean_abs_diff_all(self):
         for i, ubq_site in enumerate(self.ubq_sites):

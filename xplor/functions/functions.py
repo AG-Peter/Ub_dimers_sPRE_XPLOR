@@ -54,6 +54,7 @@ def _redefine_os_path_exists():
     def new_func(path):
         if path.lower() == 'tmp_stringio.pdb':
             return True
+            return True
         else:
             return orig_func(path)
     os.path.exists = new_func
@@ -302,19 +303,25 @@ def normalize_sPRE(df_comp, df_obs, kind='var', norm_res_count=10, get_factors=F
         v_obs = df_obs.loc[sPRE_ind][ubq_site].values
         print('Shape of observed data:', v_obs.shape)
 
+        prox_columns = [i for i in sPRE_comp.columns if 'prox' in i and 'sPRE' in i]
+        dist_columns = [i for i in sPRE_comp.columns if 'dist' in i and 'sPRE' in i]
+
         sPRE_calc_norm = []
 
         # get the mean values along the columns
         # get the threshold of the <norm_res_count> lowest values
         if kind == 'var':
-            v_calc = sPRE_comp.var(axis='rows').values
-            v_calc_prox, v_calc_dist = np.split(v_calc, 2)
+            v_calc = sPRE_comp.var(axis='rows')
+            v_calc_prox = v_calc[prox_columns].values
+            v_calc_dist = v_calc[dist_columns].values
+            assert v_calc_prox.shape == v_calc_dist.shape
             threshold_prox = np.partition(v_calc_prox[np.nonzero(v_calc_prox)], norm_res_count)[norm_res_count - 1]
             threshold_dist = np.partition(v_calc_dist[np.nonzero(v_calc_dist)], norm_res_count)[norm_res_count - 1]
             print(f"Proximal threshold = {threshold_prox}, Distal threshold = {threshold_dist}")
         elif kind == 'mean':
-            v_calc = sPRE_comp.mean(axis='rows').values
-            v_calc_prox, v_calc_dist = np.split(v_calc, 2)
+            v_calc = sPRE_comp.var(axis='rows')
+            v_calc_prox = v_calc[prox_columns].values
+            v_calc_dist = v_calc[dist_columns].values
             threshold_prox = np.partition(v_calc_prox[np.nonzero(v_calc_prox)], norm_res_count)[norm_res_count - 1]
             threshold_dist = np.partition(v_calc_dist[np.nonzero(v_calc_dist)], norm_res_count)[norm_res_count - 1]
             print(f"Proximal threshold = {threshold_prox}, Distal threshold = {threshold_dist}")
@@ -324,6 +331,10 @@ def normalize_sPRE(df_comp, df_obs, kind='var', norm_res_count=10, get_factors=F
         # get the columns that fulfill this condition
         min_values = (v_calc_prox <= threshold_prox) & (v_calc_prox != 0.0)
         centers_prox = np.where(min_values)[0]
+        print(len(centers_prox))
+        print(v_calc_prox)
+        print((v_calc_prox <= threshold_prox))
+        raise Exception("STOP")
         min_values = (v_calc_dist <= threshold_dist) & (v_calc_dist != 0.0)
         centers_dist = np.where(min_values)[0] + 76
 
@@ -352,6 +363,18 @@ def normalize_sPRE(df_comp, df_obs, kind='var', norm_res_count=10, get_factors=F
         sPRE_norm.columns = [f'normalized {c}' for c in sPRE_norm.columns]
         # sPRE_norm.to_csv(f'sPRE_{ubq_site}_normalized_via_10_min_variance.csv')
 
+        # a final check
+        nonzero = ~ np.isnan(sPRE_norm.values)
+        a = sPRE_norm.values[nonzero].flatten()
+        b = sPRE_comp.values[nonzero].flatten()
+        test = a / b
+        factors = np.unique(test.round(decimals=10))
+        test_f_prox, test_f_dist = factors[~ np.isnan(factors)]
+        print(test_f_prox, test_f_dist)
+        assert np.isclose(f_prox, test_f_prox)
+        assert np.isclose(f_dist, test_f_dist)
+        raise Exception("STOP")
+
         # append to new frame
         out.append(sPRE_norm)
         print('\n')
@@ -365,6 +388,8 @@ def normalize_sPRE(df_comp, df_obs, kind='var', norm_res_count=10, get_factors=F
         df_comp_w_norm = df_comp_w_norm[~ df_comp_w_norm['ubq_site'].str.contains('|'.join(missing))]
     df_comp_w_norm[sPRE_norm.columns] = out.values
     df_comp_w_norm = df_comp_w_norm.fillna(0)
+
+    raise Exception("STOP")
     return df_comp_w_norm, centers_prox, centers_dist
 
 
@@ -632,7 +657,7 @@ def parallel_xplor(ubq_sites, simdir='/home/andrejb/Research/SIMS/2017_*', n_thr
             else:
                 if specific_index is None:
                     out = []
-                    for  frame, frame_no, fix in zip(traj[:max_len:subsample], np.arange(traj.n_frames)[:max_len:subsample], fix_isopeptides_arr):
+                    for frame, frame_no, fix in zip(traj[:max_len:subsample], np.arange(traj.n_frames)[:max_len:subsample], fix_isopeptides_arr):
                         out.append(get_series_from_mdtraj(frame, traj_file, top_file, frame_no,
                                                           testing=testing, from_tmp=from_tmp, yaml_file=yaml_file,
                                                           fix_isopeptides=fix, isopeptide_bonds=isopeptide_bonds,
@@ -1436,7 +1461,8 @@ def get_series_from_mdtraj(frame, traj_file, top_file, frame_no, testing=False,
             raise Exception(f"This psol value should not be 0. Traj is {traj_file}, frame is {frame_no}")
 
     for o in out:
-        if int(o[1]) <= (should_be_residue_number / 2) - 1:
+        # switched from <= to > because prox and dist was mixed up.
+        if int(o[1]) > (should_be_residue_number / 2) - 1:
             resSeq = int(o[1])
             position = 'proximal'
         else:

@@ -16,7 +16,7 @@ import cartopy.crs as ccrs
 import sys, re, glob, os, itertools, pyemma, json, hdbscan, copy
 
 # %% delete old csvs
-xplor.misc.delete_old_csvs('/home/kevin/projects/tobias_schneider/values_from_every_frame/from_package_all/',
+xplor.misc.delete_old_csvs('/home/kevin/projects/tobias_schneider/values_from_every_frame/from_package/',
                             suffix='_df_no_conect.csv', )
 
 # %% Get data from last working encodermap
@@ -70,11 +70,14 @@ if not 'analysis' in globals():
     analysis.load_highd()
     analysis.train_encodermap()
     analysis.cluster()
-# analysis.load_xplor_data('no_conect')
+    analysis.load_xplor_data('no_conect')
 # analysis.new_analyze()
 # analysis.run_per_cluster_analysis(overwrite_final_combination=True)
 # analysis.get_mixed_correlation_plots(overwrite=True)
-analysis.prepare_csv_files(overwrite=True)
+# analysis.prepare_csv_files(overwrite=True)
+
+# %%
+analysis.load_xplor_data(csv='no_conect', overwrite=True)
 
 
 # %% new per cluster analysis
@@ -205,13 +208,6 @@ plt.tight_layout()
 plt.savefig()
 
 print(H.shape)
-
-# %%
-
-for atom in analysis.aa_trajs['k6'][0].top.atoms:
-    print(atom)
-    print(atom.element.mass)
-    break
 
 # %% Test plot
 #
