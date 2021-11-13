@@ -59,13 +59,19 @@ for index, value in series.iteritems():
 
 # %% flip prox and dist
 from xplor.functions.functions import datetime_windows_and_linux_compatible
+import pandas as pd
 now = datetime_windows_and_linux_compatible()
-new_filename = f'/home/kevin/projects/tobias_schneider/values_from_every_frame/from_package/{now}_df_no_conect.csv'
-df = pd.read_csv('/home/kevin/projects/tobias_schneider/values_from_every_frame/from_package/2021-08-28T12:51:04+02:00_df_no_conect.csv')
+new_filename = f'/home/kevin/projects/tobias_schneider/values_from_every_frame/from_package_all/{now}_df_no_conect.csv'
+df = pd.read_csv('/home/kevin/projects/tobias_schneider/values_from_every_frame/from_package_all/2021-10-13T16:19:28+02:00_df_no_conect.csv')
 df_copy = df.copy()
 
 prox_columns = [i for i in df.columns if 'prox' in i]
 dist_columns = [i for i in df.columns if 'dist' in i]
+
+for prox, dist in zip(prox_columns, dist_columns):
+    prox_suffix = ' '.join(prox.split()[1:])
+    dist_suffix = ' '.join(dist.split()[1:])
+    assert prox_suffix == dist_suffix
 
 reindex_dict = {i: j for i, j in zip(prox_columns, dist_columns)}
 reindex_dict.update({j: i for i, j in zip(prox_columns, dist_columns)})

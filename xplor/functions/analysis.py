@@ -1,6 +1,7 @@
 ################################################################################
 # Imports
 ################################################################################
+import datetime
 import functools
 import itertools
 import matplotlib as mpl
@@ -51,6 +52,33 @@ __all__ = ['EncodermapSPREAnalysis', 'h5load']
 ################################################################################
 # Functions
 ################################################################################
+
+
+def index_of_closest_point(node, nodes):
+    nodes = np.asarray(nodes)
+    deltas = nodes - node
+    dist_2 = np.einsum('ij,ij->i', deltas, deltas)
+    return np.argmin(dist_2)
+
+
+def check_sPRE_normalization(df):
+    for check in ['proximal', 'distal']:
+        norm_columns = [c for c in df.columns if check in c and 'norm' in c and 'sPRE' in c]
+        non_norm_columns = [c for c in df.columns if check in c and 'norm' not in c and 'sPRE' in c]
+        print(norm_columns)
+        print(non_norm_columns)
+        a = df[norm_columns].values
+        a = a[~np.isnan(a)].flatten()
+        b = df[non_norm_columns].values
+        b = b[~np.isnan(b)].flatten()
+        test = np.unique((a / b).round(10))
+        test = test[~np.isnan(test)]
+        if check == 'proximal':
+            print(len(test))
+            assert np.isclose(test, f_prox)
+        else:
+            print(test)
+            assert np.isclose(test, f_dist)
 
 
 def ckpt_step(file):
@@ -353,6 +381,78 @@ def get_dist_indices(traj, traj_file):
         raise Exception(f"For the traj {traf_file}, the proximal unit is later in the chain.")
 
 
+def replace_top_with_gromos(traj, ubq_site):
+    with Capturing() as output:
+        top_aa = CustomGromacsTopFile(
+            f'/home/andrejb/Software/custom_tools/topology_builder/topologies/gromos54a7-isop/diUBQ_{ubq_site.upper()}/system.top',
+            includeDir='/home/andrejb/Software/gmx_forcefields')
+    top = md.Topology.from_openmm(top_aa.topology)
+    traj.top = top
+
+
+def h_bond_too_long(traj, bond):
+    if any([a.element.symbol == 'H' for a in bond]):
+        if get_bond_length(traj, bond) > 0.12:
+            return True
+    return False
+
+
+def fix_pdb(traj, file, ubq_site, threshold=3, overwrite=False):
+    print(file)
+    sys.path.insert(0, f'/home/kevin/projects/anastasia')
+    bond_lengths = {'C-C': 0.153, 'C-O': 0.123, 'O-C': 0.123, 'C-N': 0.134,
+                    'N-C': 0.134, 'N-H': 0.1, 'H-N': 0.1, 'C-H': 0.109}
+    from rotate import _get_far_and_near_networkx
+    from transformations import translation_matrix
+    replace_top_with_gromos(traj, ubq_site)
+    for bond in traj.top.bonds:
+
+        bond_length = get_bond_length(traj, bond)
+
+        if bond_length > threshold or h_bond_too_long(traj, bond):
+
+            # get the should be bond length
+            bond_text = f"{bond[0].element.symbol}-{bond[1].element.symbol}"
+            if not bond_text in bond_lengths:
+                raise Exception(f"{bond_text} not in bond_lengths")
+            should_be_bond_length = bond_lengths[bond_text]
+
+            # get near and far and swich if necessary
+            near, far = _get_far_and_near_networkx(traj.top.to_bondgraph(), np.array([[bond[0].index, bond[1].index]]))
+            near = near[0]
+            far = far[0]
+            print(bond, bond_length, len(near), len(far))
+            assert bond[1].index in far
+            if len(near) < len(far):
+                near, far = far, near
+            # get the vector
+            vector = traj.xyz[0, bond[1].index] - traj.xyz[0, bond[0].index]
+            vector_length = np.linalg.norm(vector)
+            new_vector = (vector / vector_length) * should_be_bond_length
+            new_point = traj.xyz[0, bond[0].index] + new_vector
+            translation_vector = new_point - traj.xyz[0, bond[1].index]
+
+            # get the matrix
+            trans_mat = translation_matrix(translation_vector)
+            padded = np.pad(traj.xyz[0, far], ((0, 0), (0, 1)), mode='constant', constant_values=1)
+            new_points = trans_mat.dot(padded.T).T[:, :3]
+            traj.xyz[0, far] = new_points
+
+            # check
+            assert np.isclose(np.linalg.norm(traj.xyz[0, bond[0].index] - traj.xyz[0, bond[1].index]), should_be_bond_length)
+
+    traj.save_pdb(file)
+
+
+def map_nested_dicts(ob, func):
+    import collections
+    # https://stackoverflow.com/questions/32935232/python-apply-function-to-values-in-nested-dictionary
+    if isinstance(ob, collections.Mapping):
+        return {k: map_nested_dicts(v, func) for k, v in ob.items()}
+    else:
+        return func(ob)
+
+
 ################################################################################
 # Classes
 ################################################################################
@@ -380,7 +480,7 @@ class EncodermapSPREAnalysis:
         self.analysis_dir = analysis_dir
         if not os.path.isdir(self.analysis_dir):
             os.makedirs(self.analysis_dir)
-        self.cluster_exclusions = {'k6': [3], 'k29': [7], 'k33': [6]}
+        # self.cluster_exclusions = {'k6': [3], 'k29': [7], 'k33': [6]}
 
     @property
     def base_traj_k6(self):
@@ -393,6 +493,75 @@ class EncodermapSPREAnalysis:
     @property
     def base_traj_k33(self):
         return md.load('/home/andrejb/Software/custom_tools/topology_builder/topologies/gromos54a7-isop/diUBQ_K33/0.pdb')
+
+    @property
+    def df_obs(self):
+        return get_observed_df(self.ubq_sites)
+
+    @property
+    def fast_exchangers(self):
+        return get_fast_exchangers(self.ubq_sites)
+
+    @property
+    def in_secondary(self):
+        return get_in_secondary(self.ubq_sites)
+
+    @property
+    def df_comp(self):
+        return self._df_comp
+
+    @property
+    def large_df_file(self):
+        return '/mnt/data/kevin/xplor_analysis_files/lowd_and_xplor_df.csv'
+
+    @df_comp.setter
+    def df_comp(self, csv):
+        if csv == 'conect':
+            raise Exception("Need to reorder prox and dist")
+            files = glob.glob(
+                '/home/kevin/projects/tobias_schneider/values_from_every_frame/from_package_with_conect/*.csv')
+            sorted_files = sorted(files, key=get_iso_time)
+            csv = sorted_files[-1]
+            time = get_iso_time(csv)
+            assert time > datetime.datetime.strptime("2021-03-11T00:00:00+0100", "%Y-%m-%dT%H:%M:%S%z")
+        elif csv == 'no_conect':
+            files = glob.glob(
+                '/home/kevin/projects/tobias_schneider/values_from_every_frame/from_package/*.csv')
+            sorted_files = sorted(files, key=get_iso_time)
+            csv = sorted_files[-1]
+            time = get_iso_time(csv)
+            assert time > datetime.datetime.strptime("2021-03-11T00:00:00+0100", "%Y-%m-%dT%H:%M:%S%z")
+        elif csv == 'all_frames':
+            files = glob.glob(
+                '/home/kevin/projects/tobias_schneider/values_from_every_frame/from_package_all/*.csv')
+            sorted_files = sorted(files, key=get_iso_time)
+            csv = sorted_files[-1]
+            time = get_iso_time(csv)
+            assert time > datetime.datetime.strptime("2021-03-11T00:00:00+0100", "%Y-%m-%dT%H:%M:%S%z")
+        elif csv == 'legacy':
+            raise Exception("Need to reorder prox and dist")
+            csv = '/home/kevin/projects/tobias_schneider/values_from_every_frame/from_package/2021-07-23T16:49:44+02:00_df_no_conect.csv'
+            time = get_iso_time(csv)
+            assert time > datetime.datetime.strptime("2021-03-11T00:00:00+0100", "%Y-%m-%dT%H:%M:%S%z")
+        df_comp = pd.read_csv(csv, index_col=0)
+        if not 'ubq_site' in df_comp.keys():
+            df_comp['ubq_site'] = df_comp['traj_file'].map(get_ubq_site)
+        df_comp['ubq_site'] = df_comp['ubq_site'].str.lower()
+        self._df_comp = df_comp
+
+    @property
+    def norm_factors(self):
+        file = 'norm_factors.yaml'
+        if not os.path.isfile(file):
+            data = normalize_sPRE(self.df_comp, self.df_obs, get_factors=True)
+            data_w_strings = map_nested_dicts(data, str)
+            with open(file, 'w') as f:
+                yaml.safe_dump(data_w_strings, f)
+        else:
+            with open(file) as f:
+                data_w_strings = yaml.safe_load(f)
+            data = map_nested_dicts(data_w_strings, float)
+        return data
 
     def set_cluster_exclusions(self, new_exclusions={'k6': [], 'k29': [], 'k33': []}):
         print(f"Setting {new_exclusions}")
@@ -662,165 +831,289 @@ class EncodermapSPREAnalysis:
             out_df.to_csv(csv_file)
             out_df.to_excel(csv_file.replace('.csv', '.xlsx'))
 
-    def fix_broken_pdbs(self):
-        for dir_ in glob.glob('/home/kevin/projects/tobias_schneider/new_cluster_analysis'):
-            pass
+    def add_centroids_to_df(self, overwrite=False, overwrite_rows=False):
+        if 'rmsd_centroid' in self.aa_df and 'geom_centroid' in self.aa_df and not overwrite:
+            print("Centroids already there")
+        copied_ubq_sites = copy.deepcopy(self.ubq_sites)
+        try:
+            for ubq_num, ubq_site in enumerate(self.ubq_sites):
+                self.ubq_sites = [ubq_site]
+                sub_df = self.aa_df[self.aa_df['ubq_site'] == ubq_site]
+                sub_df['geom_centroid'] = -1
+                sub_df['20_selected_for_rendering'] = -1
+                sub_df['rmsd_centroid'] = -1
+                sub_df['aa_percent'] = 0
+                sub_df['ensemble_percent'] = 0
+                sub_df['internal_rmsd'] = 0.0
+                for cluster_iter, (cluster_num, count) in enumerate(zip(*np.unique(sub_df['cluster_membership'], return_counts=True))):
+                    if cluster_num == -1:
+                        continue
 
-    def analyze_mean_abs_diff_all(self):
+                    if 'geom_centroid' in self.aa_df:
+                        if cluster_num in self.aa_df[self.aa_df['ubq_site'] == ubq_site]['geom_centroid'] and not overwrite_rows and not overwrite:
+                            print(f"Cluster {cluster_num} for ubq_site {ubq_site} already in self.aa_df")
+                            continue
+
+                    # geom_centroid
+                    xy = sub_df[sub_df['cluster_membership'] == cluster_num][['x', 'y']].values
+                    assert len(xy) == count
+                    centroid = np.mean(xy, axis=0)
+                    index_closest = index_of_closest_point(centroid, xy)
+                    traj_file, frame, x, y = sub_df[sub_df['cluster_membership'] == cluster_num].iloc[index_closest][['traj_file', 'frame', 'x', 'y']]
+                    test = xy[index_closest]
+                    assert x == test[0] and y == test[1]
+                    sub_df.at[(sub_df['traj_file'] == traj_file) & (sub_df['frame'] == frame), 'geom_centroid'] = cluster_num
+                    counts = pd.value_counts(sub_df['geom_centroid'])
+                    assert counts[cluster_num] == 1
+
+                    # also add some 20 more structures with this cluster to a selected_structs_column
+                    where = np.where(sub_df['cluster_membership'] == cluster_num)[0]
+                    idx = np.round(np.linspace(0, len(where) - 1, 20)).astype(int)
+                    where = where[idx]
+                    for w in where:
+                        sub_df.iat[w, sub_df.columns.get_loc('20_selected_for_rendering')] = cluster_num
+                    counts = pd.value_counts(sub_df['20_selected_for_rendering'])
+                    assert counts[cluster_num] == len(where), print(ubq_site, cluster_num, counts)
+
+                    # also add internal RMSD, when we are already here.
+                    self.load_trajs()
+                    self.cluster()
+
+                    # get the RMSD centroidf for internal RMSD calculations
+                    max_frames = 500
+                    ref, idx, labels = center_ref_and_load()
+                    warnings.warn("The creation of the dummy_traj does not use a ref and thus should not be saved. "
+                                  "Don't use this code for saving pdbs. Also add another superpose to the crystal structure.")
+                    view, dummy_traj = _gen_dummy_traj_single(self.aa_trajs[ubq_site], cluster_num,
+                                                              max_frames=max_frames,
+                                                              superpose=False, stack_atoms=False,
+                                                              align_string='name CA and resid >= 76',
+                                                              ref_align_string='name CA',
+                                                              base_traj=getattr(self, f'base_traj_{ubq_site}'))
+                    # align to cryst again
+                    # only needed for actual saving
+                    # assert not prox_is_first(dummy_traj)
+                    # cryst = md.load('/home/kevin/1UBQ.pdb')
+                    # dummy_traj.superpose(reference=cryst, atom_indices=dummy_traj.top.select('name CA and resid >= 76'),
+                    #                      ref_atom_indices=cryst.top.select('name CA'))
+
+                    # rejig where to fit onto all trajs
+                    where = np.where(self.aa_trajs[ubq_site].cluster_membership == cluster_num)[0]
+                    idx = np.round(np.linspace(0, len(where) - 1, max_frames)).astype(int)
+                    where = where[idx]
+                    index, mat, centroid = rmsd_centroid_of_cluster(dummy_traj)
+                    where = where[index]
+
+                    # this test succeeded without the supoerposing stuff.
+                    test = self.aa_trajs[ubq_site].get_single_frame(where)
+                    assert np.array_equal(test.xyz, centroid.xyz)
+
+                    # get the file and frame of test
+                    print(test.traj_file, test.index, type(test.index))
+
+                    sub_df.at[(sub_df['traj_file'] == test.traj_file) & (sub_df['frame'] == test.index), 'rmsd_centroid'] = cluster_num
+                    counts = pd.value_counts(sub_df['rmsd_centroid'])
+                    assert counts[cluster_num] == 1
+
+                    # get aa percent
+                    aa = np.load(os.path.join(self.analysis_dir, f'cluster_membership_aa_{ubq_site}.npy'))
+                    cg = np.load(os.path.join(self.analysis_dir, f'cluster_membership_cg_{ubq_site}.npy'))
+                    n_aa_in_cluster = len(np.where(aa == cluster_num)[0])
+                    n_cg_in_cluster = len(np.where(cg == cluster_num))
+                    percent = n_aa_in_cluster / n_cg_in_cluster * 100
+                    ensemble_percent = (n_aa_in_cluster + n_cg_in_cluster) / (len(aa) + len(cg)) * 100
+                    del aa
+                    del cg
+                    sub_df.at[sub_df['rmsd_centroid'] == cluster_num, 'aa_percent'] = percent
+                    sub_df.at[sub_df['rmsd_centroid'] == cluster_num, 'ensemble_percent'] = ensemble_percent
+
+                    # internal rmsd
+                    aa_where = np.where(self.aa_trajs[ubq_site].cluster_membership == cluster_num)[0]
+                    indices = self.aa_trajs[ubq_site].index_arr[aa_where]
+                    for j, (traj_num, frame_num) in enumerate(indices):
+                        if j % 250 == 0:
+                            print(f"Building cluster for ubq_site {ubq_site}  traj for {cluster_num}. At step {j}")
+                        if j == 0:
+                            traj = self.aa_trajs[ubq_site][traj_num][frame_num].traj
+                        else:
+                            traj = traj.join(self.aa_trajs[ubq_site][traj_num][frame_num].traj)
+                    internal_rmsd = md.rmsd(traj, centroid)
+                    sub_df.at[sub_df['rmsd_centroid'] == cluster_num, 'internal_rmsd'] = np.var(internal_rmsd)
+                    self.aa_df = self.aa_df.combine_first(sub_df)
+                    assert 'internal_rmsd' in self.aa_df
+            else:
+                del self.trajs
+                del self.aa_trajs
+                del self.cg_trajs
+                del self.aa_traj_files
+                del self.cg_traj_files
+                del self.aa_references
+                del self.cg_references
+
+        finally:
+            self.ubq_sites = copied_ubq_sites
+            if hasattr(self, 'trajs'): del self.trajs
+            if hasattr(self, 'aa_trajs'): del self.aa_trajs
+            if hasattr(self, 'cg_trajs'): del self.cg_trajs
+            if hasattr(self, 'aa_traj_files'): del self.aa_traj_files
+            if hasattr(self, 'cg_traj_files'): del self.cg_traj_files
+            if hasattr(self, 'aa_references'): del self.aa_references
+            if hasattr(self, 'cg_references'): del self.cg_references
+
+        self.check_normalization()
+        self.aa_df.to_csv(self.large_df_file)
+
+    def fix_broken_pdbs(self):
+        for ubq_num, ubq_site in enumerate(self.ubq_sites):
+            sub_df = self.aa_df[self.aa_df['ubq_site'] == ubq_site]
+            for count_id in pd.unique(sub_df['count_id']):
+                if count_id == -1:
+                    continue
+                # df = sub_df[sub_df['count_id'] == count_id]
+                pdb_file = f'/home/kevin/projects/tobias_schneider/new_cluster_analysis/{ubq_site}/cluster_{count_id}/cluster.pdb'
+                traj = md.load(pdb_file)
+                if ubq_site == 'k33':
+                    if count_id in [12, 16, 18, 22]:
+                        fix_pdb(traj, pdb_file, ubq_site)
+                if one_bond_too_long(traj, 3):
+                    fix_pdb(traj, pdb_file, ubq_site)
+
+    def analyze_mean_abs_diff_all(self, overwrite=False):
         for i, ubq_site in enumerate(self.ubq_sites):
             image_name = f"/home/kevin/projects/tobias_schneider/test_sPRE_values/{ubq_site}_scatter.png"
             os.makedirs(os.path.split(image_name)[0], exist_ok=True)
-            sub_df = self.df_comp_norm[self.df_comp_norm['ubq_site'] == ubq_site]
+            sub_df = self.aa_df[self.aa_df['ubq_site'] == ubq_site]
             print(len(sub_df))
-            print(self.aa_trajs[ubq_site].n_frames)
-            files_arr = []
-            frames_arr = []
-            index_arr = self.aa_trajs[ubq_site].index_arr
-            for traj in self.aa_trajs[ubq_site]:
-                files_arr.extend([traj.traj_file for i in range(traj.n_frames)])
-                frames_arr.extend([i for i in range(traj.n_frames)])
-            files_arr = np.array(files_arr)
-            frames_arr = np.array(frames_arr)
-            x = []
-            y = []
-            mean_abs_diffs = []
-            exp_value = self.df_obs[ubq_site][self.df_obs[ubq_site].index.str.contains('sPRE')].values
-            sPRE_ind = [i for i in sub_df.columns if 'sPRE' in i and 'norm' in i]
-            for j, row in sub_df.iterrows():
-                where_file = files_arr == row['traj_file']
-                where_frame = frames_arr == row['frame']
-                where = np.where(np.logical_and(where_file, where_frame))[0]
-                assert len(where) == 1
-                where = where[0]
-                try:
-                    traj_index, frame_index = index_arr[where]
-                except ValueError:
-                    print(where)
-                    raise
-                x.append(self.aa_trajs[ubq_site][traj_index][frame_index].lowd[0])
-                y.append(self.aa_trajs[ubq_site][traj_index][frame_index].lowd[1])
-                sim_value = row[sPRE_ind].values
-                mean_abs_diff = np.mean(np.abs(sim_value - exp_value))
-                mean_abs_diffs.append(mean_abs_diff)
-            plt.close('all')
-            plt.scatter(x, y, c=mean_abs_diffs, cmap='viridis', s=5)
-            plt.savefig(image_name)
-            break
-
-    def new_analyze(self, **overwrite_dict):
-        self.set_cluster_exclusions()
-        ow_dict = {'make_large_df': False}
-        ow_dict.update(overwrite_dict)
-        self.make_large_df(ow_dict['make_large_df'])
-
-    def make_large_df(self, overwrite=False, csv='all_frames'):
-        """Loads trajs, their lowd, their cluster membership and puts it into a large df."""
-        if not hasattr(self, 'original_df') or overwrite:
-            if csv == 'conect':
-                files = glob.glob(
-                    '/home/kevin/projects/tobias_schneider/values_from_every_frame/from_package_with_conect/*.csv')
-                sorted_files = sorted(files, key=get_iso_time)
-                csv = sorted_files[-1]
-            elif csv == 'no_conect':
-                files = glob.glob(
-                    '/home/kevin/projects/tobias_schneider/values_from_every_frame/from_package/*.csv')
-                sorted_files = sorted(files, key=get_iso_time)
-                csv = sorted_files[-1]
-            elif csv == 'all_frames':
-                files = glob.glob(
-                    '/home/kevin/projects/tobias_schneider/values_from_every_frame/from_package_all/*.csv')
-                sorted_files = sorted(files, key=get_iso_time)
-                csv = sorted_files[-1]
-            self.original_df = pd.read_csv(csv, index_col=0)
-            self.original_df['ubq_site'] = self.original_df['ubq_site'].str.lower()
-
-        if not hasattr(self, 'aa_df'):
-            df_file = '/mnt/data/kevin/xplor_analysis_files/lowd_and_xplor_df.csv'
-            if os.path.isfile(df_file) and not overwrite:
-                self.aa_df = pd.read_csv(df_file, index_col=0)
+            # self.check_normalization()
+            if 'mean_abs_diff' in sub_df:
+                redo = (sub_df['mean_abs_diff'] == 0.0).all(None)
             else:
+                redo = True
+            if redo or overwrite:
+                sim_data = sub_df[[c for c in sub_df.columns if 'sPRE' in c and 'normalized' in c]].copy()
+                sim_data = sim_data.rename(columns={k: k.replace('normalized ', '') for k in sim_data.columns})
+                exp_data = self.df_obs[ubq_site][[r for r in self.df_obs.index if 'sPRE' in r]].to_frame().T
+                diff = set(sim_data.columns).difference(set(exp_data.columns))
+                assert not diff
+                sim_data = sim_data[exp_data.columns]
+                diff = np.subtract(sim_data, exp_data)
+                abs_ = abs(diff)
+                mean = np.mean(abs_, axis=1)
+                assert len(mean) == len(sub_df)
+                sub_df['mean_abs_diff'] = mean
+                self.aa_df = self.aa_df.combine_first(sub_df)
+
+            plt.close('all')
+            plt.scatter(sub_df['x'], sub_df['y'], c=sub_df['mean_abs_diff'], cmap='viridis', s=5)
+            plt.savefig(image_name)
+
+    def make_large_df(self, overwrite=False):
+        """Loads trajs, their lowd, their cluster membership and puts it into a large df.
+
+        To prevent mislabelling of dimensions trajs highd lowd and everything else will be
+        deleted afterwards. This new df is the only access to the class from now on.
+
+        """
+        if hasattr(self, 'aa_df') and not overwrite:
+            print("everything already loaded.")
+            return
+
+        if os.path.isfile(self.large_df_file) and not overwrite:
+            self.aa_df = pd.read_csv(self.large_df_file, index_col=0)
+        else:
+            copied_ubq_sites = copy.deepcopy(self.ubq_sites)
+            try:
                 sub_dfs = []
-                for i, ubq_site in enumerate(np.unique(self.original_df['ubq_site'])):
-                    sub_df = self.original_df[self.original_df['ubq_site'] == ubq_site]
-                    print(i, ubq_site)
+                for ubq_num, ubq_site in enumerate(copied_ubq_sites):
+                    sub_df = self.df_comp[self.df_comp['ubq_site'] == ubq_site]
+                    print(f"Making large_df for {ubq_site}")
 
-                    aa_traj_files = []
-                    aa_references = []
-                    for j, dir_ in enumerate(glob.glob(f"{self.sim_dirs[0]}{ubq_site}_*") + glob.glob(f'{self.sim_dirs[1]}{ubq_site.upper()}_*')):
-                        # define names
-                        traj_file = dir_ + '/traj_nojump.xtc'
-                        basename = traj_file.split('/')[-2]
-                        if 'andrejb' in traj_file:
-                            top_file = dir_ + '/start.pdb'
-                        else:
-                            top_file = dir_ + '/init.gro'
+                    self.ubq_sites = [ubq_site]
 
-                        is_aa = True
-                        if 'andrejb' in traj_file:
-                            if not is_aa_sim(traj_file): is_aa = False
+                    self.load_trajs()
+                    self.load_highd()
+                    self.train_encodermap()
+                    self.cluster()
 
-                        if is_aa:
-                            aa_traj_files.append(traj_file)
-                            aa_references.append(top_file)
-                        else:
-                            pass
-                            # cg_traj_files.append(traj_file)
-                            # cg_references.append(top_file)
-
-                    # load trajs
-                    aa_trajs = em.Info_all(trajs=aa_traj_files,
-                                           tops=aa_references,
-                                           basename_fn=lambda x: x.split('/')[-2],
-                                           common_str=[ubq_site, ubq_site.upper()])
-
-                    # load lowd
-                    e_map = em.EncoderMap.from_checkpoint(
-                        f'/mnt/data/kevin/xplor_analysis_files/runs/{ubq_site}/production_run_tf2/saved_model_100000.model*')
-                    highd = np.load(f'/mnt/data/kevin/xplor_analysis_files/highd_rwmd_aa_{ubq_site}.npy')
-                    lowd = e_map.encode(highd)
-                    aa_trajs.load_CVs(lowd, 'lowd')
-
-                    # load clustering
-                    cluster_membership = np.load(f'/mnt/data/kevin/xplor_analysis_files/cluster_membership_aa_{ubq_site}.npy')
-                    aa_trajs.load_CVs(cluster_membership, 'cluster_membership')
-
-                    # prepare data to be stored in df
+                    # prepare data to be stroed in df
                     files_arr = []
                     frames_arr = []
-                    index_arr = aa_trajs.index_arr
-                    for traj in aa_trajs:
+                    index_arr = self.aa_trajs[ubq_site].index_arr
+                    for traj in self.aa_trajs[ubq_site]:
                         files_arr.extend([traj.traj_file for i in range(traj.n_frames)])
                         frames_arr.extend([i for i in range(traj.n_frames)])
                     files_arr = np.array(files_arr)
                     frames_arr = np.array(frames_arr)
-                    x = []
-                    y = []
-                    cluster_membership = []
+                    x = self.aa_trajs[ubq_site].lowd[:, 0]
+                    y = self.aa_trajs[ubq_site].lowd[:, 1]
+                    _, _, resnames = center_ref_and_load()
+                    RWMD_columns = [f'RWMD prox {_}' for _ in resnames] + [f'RWMD dist {_}' for _ in resnames]
+                    RWMD = self.aa_trajs[ubq_site].highd
+                    cluster_membership = self.aa_trajs[ubq_site].cluster_membership
 
-                    for j, row in sub_df.iterrows():
-                        where_file = files_arr == row['traj_file']
-                        where_frame = frames_arr == row['frame']
-                        where = np.where(np.logical_and(where_file, where_frame))[0]
-                        assert len(where) == 1
-                        where = where[0]
-                        try:
-                            traj_index, frame_index = index_arr[where]
-                        except ValueError:
-                            print(where)
-                            raise
-                        x.append(aa_trajs[traj_index][frame_index].lowd[0])
-                        y.append(aa_trajs[traj_index][frame_index].lowd[1])
-                        cluster_membership.append(aa_trajs[traj_index][frame_index].cluster_membership)
+                    # prepare an dataframe with x, y and RWMD
+                    data = {'traj_file': files_arr, 'frame': frames_arr,
+                           'x': x, 'y': y, 'cluster_membership': cluster_membership,
+                            **{k: v for k, v in zip(RWMD_columns, RWMD.T)}}
+                    df = pd.DataFrame(data)
 
-                    sub_df['x'] = x
-                    sub_df['y'] = y
-                    sub_df['cluster_membership'] = cluster_membership
+                    print(f"For ubq_site {ubq_site} df from all atoms is {df.shape[0] - sub_df.shape[0]} longer than df with sPRE_values")
+                    sub_df = pd.merge(sub_df, df, how='inner')
                     sub_dfs.append(sub_df)
-                    del e_map
-                    del aa_trajs
+
+                    # delete all unwanted attributes
+                    del self.trajs[ubq_site]
+                    del self.aa_trajs[ubq_site]
+                    del self.cg_trajs[ubq_site]
+                    del self.aa_traj_files[ubq_site]
+                    del self.cg_traj_files[ubq_site]
+                    del self.aa_references[ubq_site]
+                    del self.cg_references[ubq_site]
+                    del self.aa_dists[ubq_site]
+                    del self.cg_dists[ubq_site]
 
                 self.aa_df = pd.concat(sub_dfs, ignore_index=True)
-                self.aa_df.to_csv(df_file)
+                self.aa_df = normalize_sPRE(self.aa_df, self.df_obs)
+                self.aa_df.to_csv(self.large_df_file)
+
+                del self.trajs
+                del self.aa_trajs
+                del self.cg_trajs
+                del self.aa_traj_files
+                del self.cg_traj_files
+                del self.aa_references
+                del self.cg_references
+                del self.aa_dists
+                del self.cg_dists
+
+            finally:
+                self.ubq_sites = copied_ubq_sites
+
+    def add_count_ids(self, overwrite=False):
+        if not 'count_id' in self.aa_df or overwrite:
+            add_dict = {}
+            for ubq_num, ubq_site in enumerate(self.ubq_sites):
+                add_dict[ubq_site] = {-1: -1}
+                aa = np.load(os.path.join(self.analysis_dir, f'cluster_membership_aa_{ubq_site}.npy'))
+                cg = np.load(os.path.join(self.analysis_dir, f'cluster_membership_cg_{ubq_site}.npy'))
+                all_clu_memberships = np.hstack([aa, cg])
+                uniques, counts = np.unique(all_clu_memberships, return_counts=True)
+                missing = np.in1d(uniques, np.unique(aa))
+                uniques = uniques[missing]
+                counts = counts[missing]
+                indices = np.argsort(np.argsort(counts[1:])[::-1])
+                if ubq_site == 'k29':
+                    assert 18 not in indices
+                for u, c, i in zip(uniques[1:], counts[1:], indices):
+                    add_dict[ubq_site][u] = i
+                del all_clu_memberships
+
+            def add_count_ids(row):
+                return add_dict[row['ubq_site']][int(row['cluster_membership'])]
+
+            self.aa_df['count_id'] = self.aa_df.apply(add_count_ids, axis=1)
+            df_file = '/mnt/data/kevin/xplor_analysis_files/lowd_and_xplor_df.csv'
+            self.aa_df.to_csv(df_file)
 
     def analyze(self, **overwrite_dict):
         """Start the analysis
@@ -910,6 +1203,7 @@ class EncodermapSPREAnalysis:
                     if not one_bond_too_long(frame, 3):
                         index.append(frame_no)
                 if len(index) > 0:
+                    raise Exception("Fix the bonds")
                     print(f"Found {dummy_traj.n_frames - len(index)} bonds with too long bond lengths for {ubq_site}, {cluster_num}.")
                     index = np.array(index)
                     dummy_traj = dummy_traj[index]
@@ -940,7 +1234,71 @@ class EncodermapSPREAnalysis:
                 print(f"Saving as {pdb_file}")
                 dummy_traj.save_xtc(xtc_file)
 
+    def reassign_df_comp(self):
+        print(self.df_comp.shape)
+        print(self.aa_df.shape)
 
+        # make sure the traj_columns are identical
+        aa_df = self.aa_df.sort_values(['ubq_site', 'traj_file', 'frame'])
+        aa_df = aa_df.reset_index()
+        df_comp = self.df_comp.sort_values(['ubq_site', 'traj_file', 'frame'])
+        df_comp = df_comp.reset_index()
+        assert np.all((df_comp[['traj_file', 'frame']] == aa_df[['traj_file', 'frame']]).values)
+
+        aa_df = self.aa_df.copy()
+        df_comp = self.df_comp.copy()[['ubq_site', 'traj_file', 'frame', *[c for c in df_comp if 'sPRE' in c]]]
+        aa_df.combine_first(df_comp)
+
+        aa_df = aa_df.loc[:, ~aa_df.columns.str.contains('^Unnamed')]
+
+        self.aa_df = aa_df
+        self.aa_df, self.centers_prox, self.centers_dist = normalize_sPRE(aa_df, self.df_obs)
+        # self.aa_df.to_csv(self.large_df_file)
+
+    def check_normalization(self, already_checked_approving_reassurance=False):
+        for ubq_num, ubq_site in enumerate(self.ubq_sites):
+            sub_df = self.aa_df[self.aa_df['ubq_site'] == ubq_site]
+            for check in ['proximal', 'distal']:
+                try:
+                    factor_should_be = self.norm_factors[ubq_site][check]
+                except KeyError:
+                    if check == 'proximal':
+                        c = 'prox'
+                    if check == 'distal':
+                        c = 'dist'
+                    factor_should_be = self.norm_factors[ubq_site][c]
+                non_norm_cols = [c for c in sub_df.columns if 'sPRE' in c and check in c and 'norm' not in c]
+                norm_cols = [c for c in sub_df.columns if 'sPRE' in c and check in c and 'norm' in c]
+
+                non_norm_values = sub_df[non_norm_cols].values
+                norm_values = sub_df[norm_cols].values
+
+                if non_norm_values.shape != norm_values.shape:
+                    print(f"The shapes of norm {norm_values.shape} does not match the shape of non_norm {non_norm_values.shape}. I will attempt to redo the normalization.")
+                    if already_checked_approving_reassurance:
+                        raise Exception("After two calls to reassign df_comp I could not fix the shape.")
+                    else:
+                        self.reassign_df_comp()
+                        self.check_normalization(True)
+
+                print(non_norm_values.shape, norm_values.shape)
+
+                factor_is = np.unique((norm_values / non_norm_values).round(10))
+                factor_is = factor_is[np.logical_and(~np.isnan(factor_is), factor_is != 0)]
+                if len(factor_is) > 1:
+                    if already_checked_approving_reassurance:
+                        print(factor_is)
+                        raise Exception("After two calls to reassign df_comp I could not fix the factors.")
+                    else:
+                        self.reassign_df_comp()
+                        self.check_normalization(True)
+
+                if already_checked_approving_reassurance:
+                    if np.isclose(factor_is, factor_should_be):
+                        print(f"{ubq_site} {check} was correctly normalized.")
+                    else:
+                        print(factor_is, factor_should_be)
+                        raise Exception("After two calls to reassign df_comp I could not fix the factors.")
 
     def run_per_cluster_analysis(self, overwrite=False, overwrite_df_creation=False,
                                  overwrite_polar_plots=False, overwrite_pdb_files=False,
@@ -951,11 +1309,8 @@ class EncodermapSPREAnalysis:
 
         * Render wireframe
 
-        Todo:
-            * For the sPRE move the IQR and Q1,3 ranges into the upper legend.
-
         """
-        df_file = '/home/kevin/projects/tobias_schneider/new_images/clusters.h5'
+        df_file = '/home/kevin/projects/tobias_schneider/new_images/clusters_v2.h5'
 
         if os.path.isfile(df_file) and not overwrite and not overwrite_df_creation:
             print("df file exists. Not overwriting")
@@ -966,14 +1321,22 @@ class EncodermapSPREAnalysis:
         else:
             metadata = {}
 
-            for i, ubq_site in enumerate(self.ubq_sites):
+            for ubq_num, ubq_site in enumerate(pd.unique(self.aa_df['ubq_site'])):
 
-                linear_combination, cluster_means = make_linear_combination_from_clusters(self.trajs[ubq_site],
-                                                                                          self.df_comp_norm,
+                sub_df = self.aa_df[self.aa_df['ubq_site'] == ubq_site]
+
+                linear_combination, cluster_means = make_linear_combination_from_clusters(None,
+                                                                                          sub_df,
                                                                                           self.df_obs,
                                                                                           self.fast_exchangers,
                                                                                           ubq_site=ubq_site,
                                                                                           return_means=True)
+
+                # check whether normalizations still hold true
+                check_sPRE_normalization(sub_df)
+
+                # check whether sim_norm and sim_not_norm can be moved by a factor
+                raise Exception("STOP")
 
                 assert np.isclose(np.sum(linear_combination), 1)
 
@@ -1270,6 +1633,27 @@ class EncodermapSPREAnalysis:
                 plt.savefig(final_correlation_image_all)
 
     def load_trajs(self, overwrite=False):
+        """Loads the trajs from disk and adds the following attributes:
+
+        Attrs:
+            trajs (Dict[str, em.Info_all]): Dict of Info_all objects containing all CG and AA trajs.
+                Mapped to their respective ubiquitination sites.
+            aa_trajs (Dict[str, em.Info_all]): Dict of Info_all objects containing only AA trajs.
+                Mapped to their respective ubiquitination sites.
+            cg_trajs (Dict[str, em.Info_all]): Dict of Info_all objects containing only CG trajs.
+                Mapped to their respective ubiquitination sites.
+            aa_traj_files (Dict[str, List[str]]): A dict mapping the ubiquitination sites to a list
+                of strings pointing to all AA files.
+            cg_traj_files (Dict[str, List[str]]): A dict mapping the ubiquitination sites to a list
+                of strings pointing to all CG files.
+            aa_references (Dict[str, List[str]]): A dict mapping the ubiquitination sites to a list
+                of strings pointing to the reference files for the AA simulations. These
+                files can either be .gro or .pdb files.
+            cg_references (Dict[str, List[str]]): A dict mapping the ubiquitination sites to a list
+                of strings pointing to the reference files for the CG simulations. These
+                files can either be .gro or .pdb files.
+
+        """
         if hasattr(self, 'trajs'):
             if not overwrite and bool(self.trajs):
                 print("Trajs already loaded")
@@ -1318,6 +1702,27 @@ class EncodermapSPREAnalysis:
 
 
     def load_highd(self, overwrite=False):
+        """Load sthe high-d RWMD data. If not present it constructs the data.
+
+        The RWMD is calculated by iterating over the residues of the two subunits,
+        respectively. Starting from residue MET1 of the proximal subunit, all
+        distances to every residue in the distal subunit are calculated and the
+        smallest distance is chosen for that residue. Then the proximal GLN2 is
+        considered. The smallest distance from GLN2 to any of the distal residues
+        is added to the RWMD. Next is ILE3 and so on. After that 76 distances are
+        in RWMD. After that the same is done with the distal-proximal distances
+        leading to 152 values per diUbi conformation.
+
+        This method adds the following attributes to the class:
+
+        Attrs:
+            aa_dists (Dict[str, np.ndarray]): A dict mapping the ubiquitination sites
+                to the numpy arrays holding the high-dimensional RWMD data of the AA trajs.
+            cg_dists (Dict[str, np.ndarray]): A dict mapping the ubiquitination sites
+                to the numpy arrays holding the high-dimensional RWMD data of the CG trajs.
+
+
+        """
         if not hasattr(self, 'aa_dists') or overwrite:
             self.aa_dists = {}
         if not hasattr(self, 'cg_dists') or overwrite:
@@ -1380,6 +1785,7 @@ class EncodermapSPREAnalysis:
                 print("Highd already loaded")
 
     def train_encodermap(self, overwrite=False):
+        """Trans encodermap with the RWMD data. Does not add any attributes to self."""
         if self.check_attr_all('lowd') and not overwrite:
             print("Lowd already in all trajs")
             return
@@ -1423,39 +1829,16 @@ class EncodermapSPREAnalysis:
             self.cg_trajs[ubq_site].load_CVs(cg_lowd, attr_name='lowd')
 
     def load_xplor_data(self, overwrite=False,
-                        csv='conect'):
+                        csv='conect', overwrite_normalization=False):
         if all([hasattr(self, _) for _ in ['df_obs', 'fast_exchangers', 'in_secondary', 'df_comp_norm', 'norm_factors']]) and not overwrite:
             print("XPLOR data already loaded")
             return
-
-        if csv == 'conect':
-            files = glob.glob(
-                '/home/kevin/projects/tobias_schneider/values_from_every_frame/from_package_with_conect/*.csv')
-            sorted_files = sorted(files, key=get_iso_time)
-            csv = sorted_files[-1]
-        elif csv == 'no_conect':
-            files = glob.glob(
-                '/home/kevin/projects/tobias_schneider/values_from_every_frame/from_package/*.csv')
-            sorted_files = sorted(files, key=get_iso_time)
-            csv = sorted_files[-1]
-        elif csv == 'all_frames':
-            files = glob.glob(
-                '/home/kevin/projects/tobias_schneider/values_from_every_frame/from_package_all/*.csv')
-            sorted_files = sorted(files, key=get_iso_time)
-            csv = sorted_files[-1]
-        elif csv == 'legacy':
-            csv = '/home/kevin/projects/tobias_schneider/values_from_every_frame/from_package/2021-07-23T16:49:44+02:00_df_no_conect.csv'
-        df_comp = pd.read_csv(csv, index_col=0)
-        if not 'ubq_site' in df_comp.keys():
-            df_comp['ubq_site'] = df_comp['traj_file'].map(get_ubq_site)
-        df_comp['ubq_site'] = df_comp['ubq_site'].str.lower()
-        self.df_obs = get_observed_df(['k6', 'k29', 'k33'])
-        self.fast_exchangers = get_fast_exchangers(['k6', 'k29', 'k33'])
-        self.in_secondary = get_in_secondary(['k6', 'k29', 'k33'])
-        self.df_comp_norm, self.centers_prox, self.centers_dist = normalize_sPRE(df_comp, self.df_obs)
-        self.norm_factors = normalize_sPRE(df_comp, self.df_obs, get_factors=True)
+        self.df_comp = csv
+        if overwrite or overwrite_normalization or not hasattr(self, 'df_comp_norm'):
+            self.df_comp_norm, self.centers_prox, self.centers_dist = normalize_sPRE(self.df_comp, self.df_obs)
 
     def cluster(self, overwrite=False):
+        """Uses HDBSCAN to decide cluster_membership of trajs does not add any attribute to self."""
         if self.check_attr_all('cluster_membership'):
             print("Cluster Membership already in all trajs")
             return
@@ -1536,7 +1919,7 @@ class EncodermapSPREAnalysis:
                 aa_percent = len(aa_cluster_points_ind) / sum_cluster * 100
                 cg_percent = len(cg_cluster_points_ind) / sum_cluster * 100
                 coeff = str(np.format_float_scientific(linear, 2))
-                raise Exception("Rework the mean abs diff. Use coefficient * cluster_mean and not cluster_mean alone.")
+                raise Exception("Mean abs diff without fast exchangers")
                 mean_abs_diff = np.round(np.mean(np.abs(mean - exp_values)), 2)
                 percentage = sum_cluster / self.trajs[ubq_site].n_frames * 100
                 print(f"Cluster {cluster_num} consists of {aa_percent:.2f}% aa structures and {cg_percent:.2f}% of cg structures."

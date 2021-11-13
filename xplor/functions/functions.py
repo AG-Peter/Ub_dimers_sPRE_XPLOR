@@ -295,7 +295,7 @@ def normalize_sPRE(df_comp, df_obs, kind='var', norm_res_count=10, get_factors=F
             continue
         print(ubq_site)
         # put the needed values into their own df
-        sPRE_ind = df_comp.columns[['sPRE' in c for c in df_comp.columns]]
+        sPRE_ind = df_comp.columns[['sPRE' in c and 'norm' not in c for c in df_comp.columns]]
         sPRE_comp = df_comp[df_comp['ubq_site'] == ubq_site][sPRE_ind]
         print('Shape of computed data:', sPRE_comp.shape)
 
@@ -303,8 +303,8 @@ def normalize_sPRE(df_comp, df_obs, kind='var', norm_res_count=10, get_factors=F
         v_obs = df_obs.loc[sPRE_ind][ubq_site].values
         print('Shape of observed data:', v_obs.shape)
 
-        prox_columns = [i for i in sPRE_comp.columns if 'prox' in i and 'sPRE' in i]
-        dist_columns = [i for i in sPRE_comp.columns if 'dist' in i and 'sPRE' in i]
+        prox_columns = [i for i in sPRE_comp.columns if 'prox' in i and 'sPRE' in i and 'norm' not in i]
+        dist_columns = [i for i in sPRE_comp.columns if 'dist' in i and 'sPRE' in i and 'norm' not in i]
 
         sPRE_calc_norm = []
 
@@ -312,6 +312,8 @@ def normalize_sPRE(df_comp, df_obs, kind='var', norm_res_count=10, get_factors=F
         # get the threshold of the <norm_res_count> lowest values
         if kind == 'var':
             v_calc = sPRE_comp.var(axis='rows')
+            if np.any(np.isnan(v_calc)):
+                v_calc[np.isnan(v_calc)] = 0
             v_calc_prox = v_calc[prox_columns].values
             v_calc_dist = v_calc[dist_columns].values
             assert v_calc_prox.shape == v_calc_dist.shape
@@ -329,19 +331,15 @@ def normalize_sPRE(df_comp, df_obs, kind='var', norm_res_count=10, get_factors=F
             raise Exception("`kind` must be either 'var' or 'mean'.")
 
         # get the columns that fulfill this condition
-        min_values = (v_calc_prox <= threshold_prox) & (v_calc_prox != 0.0)
-        centers_prox = np.where(min_values)[0]
-        print(len(centers_prox))
-        print(v_calc_prox)
-        print((v_calc_prox <= threshold_prox))
-        raise Exception("STOP")
-        min_values = (v_calc_dist <= threshold_dist) & (v_calc_dist != 0.0)
-        centers_dist = np.where(min_values)[0] + 76
+        min_values_prox = (v_calc_prox <= threshold_prox) & (v_calc_prox != 0.0)
+        centers_prox = np.where(min_values_prox)[0] + 76
+        min_values_dist = (v_calc_dist <= threshold_dist) & (v_calc_dist != 0.0)
+        centers_dist = np.where(min_values_dist)[0]
 
-        print(f"Considered residues are Prox: {residues[centers_prox]} and Dist: {residues[centers_dist - 76]}")
+        print(f"Considered residues are Prox: {residues[centers_prox - 76]} and Dist: {residues[centers_dist]}")
 
         # test + 76
-        a = v_calc_dist[min_values][0]
+        a = v_calc_dist[min_values_dist][0]
         b = v_calc[centers_dist][0]
         assert a == b
 
@@ -351,29 +349,39 @@ def normalize_sPRE(df_comp, df_obs, kind='var', norm_res_count=10, get_factors=F
         factors_dist = v_obs[centers_dist] / v_calc[centers_dist]
         f_prox = np.mean(factors_prox)
         f_dist = np.mean(factors_dist)
-        factors_out[ubq_site] = [f_prox, f_dist]
+        factors_out[ubq_site] = {'proximal': f_prox, 'distal': f_dist}
         print(f"Proximal factor = {f_prox}, Distal factor = {f_dist}")
 
         # copy the existing values and multiply
-        new_values = copy.deepcopy(sPRE_comp.values)
-        new_values[:, :76] *= f_prox
-        new_values[:, 76:] *= f_dist
+        new_values = sPRE_comp.copy()
+        new_values[prox_columns] *= f_prox
+        new_values[dist_columns] *= f_dist
 
-        sPRE_norm = pd.DataFrame(new_values, columns=sPRE_comp.columns)
-        sPRE_norm.columns = [f'normalized {c}' for c in sPRE_norm.columns]
+        sPRE_norm = new_values
+        rename_columns = {k: 'normalized '+k for k in sPRE_comp.columns}
+        sPRE_norm = sPRE_norm.rename(columns=rename_columns)
         # sPRE_norm.to_csv(f'sPRE_{ubq_site}_normalized_via_10_min_variance.csv')
 
-        # a final check
-        nonzero = ~ np.isnan(sPRE_norm.values)
-        a = sPRE_norm.values[nonzero].flatten()
-        b = sPRE_comp.values[nonzero].flatten()
-        test = a / b
-        factors = np.unique(test.round(decimals=10))
-        test_f_prox, test_f_dist = factors[~ np.isnan(factors)]
-        print(test_f_prox, test_f_dist)
-        assert np.isclose(f_prox, test_f_prox)
-        assert np.isclose(f_dist, test_f_dist)
-        raise Exception("STOP")
+        # a check
+        for check in ['proximal', 'distal']:
+            norm_columns = [c for c in sPRE_norm.columns if check in c]
+            assert len(norm_columns) == 76
+            non_norm_columns = [c for c in sPRE_comp.columns if check in c]
+            assert len(norm_columns) == len(non_norm_columns)
+            a = sPRE_norm[norm_columns].values
+            a = a[~np.isnan(a)].flatten()
+            b = sPRE_comp[non_norm_columns].values
+            b = b[~np.isnan(b)].flatten()
+            test = np.unique((a / b).round(10))
+            test = test[~np.isnan(test)]
+            if check == 'proximal':
+                print(test, f_prox)
+                assert np.isclose(test, f_prox)
+                assert np.isclose(test, factors_out[ubq_site][check])
+            else:
+                print(test, f_dist)
+                assert np.isclose(test, f_dist)
+                assert np.isclose(test, factors_out[ubq_site][check])
 
         # append to new frame
         out.append(sPRE_norm)
@@ -382,14 +390,81 @@ def normalize_sPRE(df_comp, df_obs, kind='var', norm_res_count=10, get_factors=F
     if get_factors:
         return factors_out
 
-    out = pd.concat(out)
+    # set the norm columns to 0, even if they exist
+    norm_cols = []
     df_comp_w_norm = df_comp.copy()
+    # for c in df_comp_w_norm.columns:
+    #     if 'sPRE' in c and 'norm' not in c:
+    #         new_name = f'normalized {c}'
+    #         norm_cols.append(new_name)
+    #         df_comp_w_norm[new_name] = 0
+
+    # check if all is 0
+    assert (df_comp_w_norm[norm_cols] == 0).all(None)
+
+    def sort_columns(type_, normed=False):
+        if not normed:
+            def sort(x):
+                if 'sPRE' in x and type_ in x and 'norm' not in x:
+                    return True
+                else:
+                    return False
+        else:
+            def sort(x):
+                if 'sPRE' in x and type_ in x and 'norm' in x:
+                    return True
+                else:
+                    return False
+        return sort
+
+    # make the values
+    for ubq_site in pd.value_counts(df_comp['ubq_site']).index:
+        for type_ in ['proximal', 'distal']:
+            factor = factors_out[ubq_site][type_]
+            non_norm_cols = list(filter(sort_columns(type_, normed=False), df_comp_w_norm.columns))
+            assert all([type_ in _ for _ in non_norm_cols]), print(non_norm_cols)
+            assert len(non_norm_cols) == 76, print(len(non_norm_cols))
+            norm_cols = ['normalized ' + c for c in non_norm_cols]
+            assert len(non_norm_cols) == len(norm_cols), print(norm_cols, non_norm_cols)
+            old_values = df_comp_w_norm[df_comp_w_norm['ubq_site'] == ubq_site][non_norm_cols].values
+            new_values = old_values * factor
+
+            new_df = df_comp.copy()[['ubq_site', 'traj_file', 'frame']]
+            new_df = new_df[new_df['ubq_site'] == ubq_site]
+            assert len(new_df.columns) == 3
+
+            # test whether numpy multiplication works
+            test = np.unique(np.unique(new_values / old_values).round(10))
+            mask = np.logical_and(~np.isnan(test), test != 0)
+            test_ = test[mask]
+            assert np.isclose(test_, factor)
+            assert len(norm_cols) == new_values.T.shape[0]
+
+            new_df[norm_cols] = new_values
+            assert len(new_df.columns) == 76 + 3
+
+            df_comp_w_norm = df_comp_w_norm.combine_first(new_df)
+            values = np.unique(df_comp_w_norm[df_comp_w_norm['ubq_site'] == ubq_site][norm_cols].values)
+            assert len(values) > 1
+
+            # and check
+            a = df_comp_w_norm[df_comp_w_norm['ubq_site'] == ubq_site][norm_cols].values
+            b = df_comp_w_norm[df_comp_w_norm['ubq_site'] == ubq_site][non_norm_cols].values
+            test = np.unique(np.unique(a / b).round(10))
+            mask = np.logical_and(~np.isnan(test), test != 0)
+            test_ = test[mask]
+            if not np.isclose(test_, factor):
+                print(ubq_site, type_, test_, test, factor, values)
+                raise Exception("FUCK")
+            else:
+                print(f"{ubq_site} {type_} was correctly normalized")
+
     if missing:
+        raise Exception("Don't know, whether this still works with the new factor assignments.")
         df_comp_w_norm = df_comp_w_norm[~ df_comp_w_norm['ubq_site'].str.contains('|'.join(missing))]
-    df_comp_w_norm[sPRE_norm.columns] = out.values
+
     df_comp_w_norm = df_comp_w_norm.fillna(0)
 
-    raise Exception("STOP")
     return df_comp_w_norm, centers_prox, centers_dist
 
 
@@ -1515,7 +1590,8 @@ def make_linear_combination_from_clusters(trajs, df, df_obs, fast_exchangers, ub
     """Makes a linear combination from sPRE values and clustered trajs.
 
     Args:
-        trajs (encodermap.Info_all): The trajs with cluster membership inside them.
+        trajs (Union[encodermap.Info_all, None]): The trajs with cluster membership inside them.
+            Can also be None. In which case, the df should have a column called 'cluster_membership'.
         df (pandas.DataFrame): The XPLOR data.
         df_obs (pandas.DataFrame): The observerd NMR values.
         fast_exchangers (pandas.DataFrame): Boolean dataframe with residues that exchnage rapidly.
@@ -1539,12 +1615,15 @@ def make_linear_combination_from_clusters(trajs, df, df_obs, fast_exchangers, ub
     non_norm_sPRE_ind =  [i for i in df.columns if 'sPRE' in i and 'norm' not in i]
 
     # put cluster membership into df
-    cluster_membership_sPRE = []
-    for i, traj in enumerate(trajs):
-        frames = df[df['traj_file'] == traj.traj_file]['frame'].values
-        cluster_membership_sPRE.append(traj.cluster_membership[frames])
-    cluster_membership_sPRE = np.hstack(cluster_membership_sPRE)
-    df['cluster_membership'] = cluster_membership_sPRE
+    if trajs is not None:
+        cluster_membership_sPRE = []
+        for i, traj in enumerate(trajs):
+            frames = df[df['traj_file'] == traj.traj_file]['frame'].values
+            cluster_membership_sPRE.append(traj.cluster_membership[frames])
+        cluster_membership_sPRE = np.hstack(cluster_membership_sPRE)
+        df['cluster_membership'] = cluster_membership_sPRE
+    else:
+        assert 'cluster_membership' in df
 
     # calculcate the per-cluster per-residue means
     cluster_means = []

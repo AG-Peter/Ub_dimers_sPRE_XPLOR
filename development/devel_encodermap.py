@@ -66,18 +66,28 @@ for ubq_site in ubq_sites:
 import xplor
 if not 'analysis' in globals():
     analysis = xplor.functions.EncodermapSPREAnalysis(['k6', 'k29', 'k33'])
-    analysis.load_trajs()
-    analysis.load_highd()
-    analysis.train_encodermap()
-    analysis.cluster()
-    analysis.load_xplor_data('no_conect')
-# analysis.new_analyze()
+    analysis.df_comp = 'all_frames'
+    analysis.make_large_df(False)
+    analysis.add_count_ids(False)
+# analysis.fix_broken_pdbs()
+# analysis.check_normalization()
+analysis.add_centroids_to_df()
+# analysis.analyze_mean_abs_diff_all(True)
+# analysis.run_per_cluster_analysis()
+# analysis.
 # analysis.run_per_cluster_analysis(overwrite_final_combination=True)
 # analysis.get_mixed_correlation_plots(overwrite=True)
 # analysis.prepare_csv_files(overwrite=True)
 
+
 # %%
-analysis.load_xplor_data(csv='no_conect', overwrite=True)
+# analysis.aa_df.to_csv(analysis.large_df_file)
+
+# %%
+print([k for k in analysis.aa_df.keys() if 'prox' not in k and 'dist' not in k])
+
+# %% old cluster analysis
+analysis.make_large_df(overwrite=True)
 
 
 # %% new per cluster analysis
