@@ -70,18 +70,23 @@ if not 'analysis' in globals():
     analysis.make_large_df(False)
     analysis.add_count_ids(False)
 # analysis.fix_broken_pdbs()
+# analysis.add_centroids_to_df(testing=False)
 # analysis.check_normalization()
-analysis.add_centroids_to_df()
-# analysis.analyze_mean_abs_diff_all(True)
-# analysis.run_per_cluster_analysis()
+analysis.run_per_cluster_analysis(overwrite=True)
 # analysis.
 # analysis.run_per_cluster_analysis(overwrite_final_combination=True)
 # analysis.get_mixed_correlation_plots(overwrite=True)
 # analysis.prepare_csv_files(overwrite=True)
 
+# %%
+print(analysis.norm_factors)
+
 
 # %%
+import pandas as pd
 # analysis.aa_df.to_csv(analysis.large_df_file)
+df = analysis.aa_df.sort_values(by='geom_centroid')
+df[-4:][['geom_centroid', 'traj_file']]
 
 # %%
 print([k for k in analysis.aa_df.keys() if 'prox' not in k and 'dist' not in k])

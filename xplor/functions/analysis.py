@@ -831,26 +831,39 @@ class EncodermapSPREAnalysis:
             out_df.to_csv(csv_file)
             out_df.to_excel(csv_file.replace('.csv', '.xlsx'))
 
-    def add_centroids_to_df(self, overwrite=False, overwrite_rows=False):
+    def add_centroids_to_df(self, overwrite=False, overwrite_rows=False, testing=False):
         if 'rmsd_centroid' in self.aa_df and 'geom_centroid' in self.aa_df and not overwrite:
+            print(pd.value_counts(self.aa_df['geom_centroid']))
             print("Centroids already there")
         copied_ubq_sites = copy.deepcopy(self.ubq_sites)
         try:
+            sub_dfs = []
             for ubq_num, ubq_site in enumerate(self.ubq_sites):
                 self.ubq_sites = [ubq_site]
-                sub_df = self.aa_df[self.aa_df['ubq_site'] == ubq_site]
-                sub_df['geom_centroid'] = -1
-                sub_df['20_selected_for_rendering'] = -1
-                sub_df['rmsd_centroid'] = -1
-                sub_df['aa_percent'] = 0
-                sub_df['ensemble_percent'] = 0
-                sub_df['internal_rmsd'] = 0.0
+                if not os.path.isfile(f'/mnt/data/kevin/xplor_analysis_files/sub_df_for_saving_{ubq_site}.csv') or overwrite:
+                    sub_df = self.aa_df[self.aa_df['ubq_site'] == ubq_site]
+                    sub_df['geom_centroid'] = -1
+                    sub_df['20_selected_for_rendering'] = -1
+                    sub_df['rmsd_centroid'] = -1
+                    sub_df['aa_percent'] = 0
+                    sub_df['ensemble_percent'] = 0
+                    sub_df['internal_rmsd'] = 0.0
+                else:
+                    sub_df = pd.read_csv(f'/mnt/data/kevin/xplor_analysis_files/sub_df_for_saving_{ubq_site}.csv', index_col=0)
+                if testing:
+                    if ubq_site != 'k6':
+                        break
                 for cluster_iter, (cluster_num, count) in enumerate(zip(*np.unique(sub_df['cluster_membership'], return_counts=True))):
                     if cluster_num == -1:
                         continue
 
-                    if 'geom_centroid' in self.aa_df:
-                        if cluster_num in self.aa_df[self.aa_df['ubq_site'] == ubq_site]['geom_centroid'] and not overwrite_rows and not overwrite:
+                    if testing:
+                        if cluster_num >= 3:
+                            break
+
+                    print(f"At cluster num {cluster_num} for ubq_site {ubq_site}.")
+                    if 'geom_centroid' in sub_df:
+                        if cluster_num in sub_df['geom_centroid'].unique() and not overwrite_rows and not overwrite:
                             print(f"Cluster {cluster_num} for ubq_site {ubq_site} already in self.aa_df")
                             continue
 
@@ -873,7 +886,7 @@ class EncodermapSPREAnalysis:
                     for w in where:
                         sub_df.iat[w, sub_df.columns.get_loc('20_selected_for_rendering')] = cluster_num
                     counts = pd.value_counts(sub_df['20_selected_for_rendering'])
-                    assert counts[cluster_num] == len(where), print(ubq_site, cluster_num, counts)
+                    assert 19 <= counts[cluster_num] <= 21, print(ubq_site, cluster_num, counts)
 
                     # also add internal RMSD, when we are already here.
                     self.load_trajs()
@@ -932,24 +945,37 @@ class EncodermapSPREAnalysis:
                     indices = self.aa_trajs[ubq_site].index_arr[aa_where]
                     for j, (traj_num, frame_num) in enumerate(indices):
                         if j % 250 == 0:
-                            print(f"Building cluster for ubq_site {ubq_site}  traj for {cluster_num}. At step {j}")
+                            print(f"Building cluster for ubq_site {ubq_site} traj for cluster {cluster_num}. At step {j}")
                         if j == 0:
                             traj = self.aa_trajs[ubq_site][traj_num][frame_num].traj
                         else:
                             traj = traj.join(self.aa_trajs[ubq_site][traj_num][frame_num].traj)
                     internal_rmsd = md.rmsd(traj, centroid)
                     sub_df.at[sub_df['rmsd_centroid'] == cluster_num, 'internal_rmsd'] = np.var(internal_rmsd)
-                    self.aa_df = self.aa_df.combine_first(sub_df)
-                    assert 'internal_rmsd' in self.aa_df
+                else:
+                    if hasattr(self, 'trajs'): del self.trajs
+                    if hasattr(self, 'aa_trajs'): del self.aa_trajs
+                    if hasattr(self, 'cg_trajs'): del self.cg_trajs
+                    if hasattr(self, 'aa_traj_files'): del self.aa_traj_files
+                    if hasattr(self, 'cg_traj_files'): del self.cg_traj_files
+                    if hasattr(self, 'aa_references'): del self.aa_references
+                    if hasattr(self, 'cg_references'): del self.cg_references
+                sub_dfs.append(sub_df)
+                # sub_df.to_csv(f'/mnt/data/kevin/xplor_analysis_files/sub_df_for_saving_{ubq_site}.csv')
             else:
-                del self.trajs
-                del self.aa_trajs
-                del self.cg_trajs
-                del self.aa_traj_files
-                del self.cg_traj_files
-                del self.aa_references
-                del self.cg_references
-
+                assert len(sub_dfs) == len(copied_ubq_sites)
+                new_df = pd.concat(sub_dfs)
+                lengths = sum(len(sub_df) for sub_df in sub_dfs)
+                assert len(new_df) == lengths
+                new_df['geom_centroid'] = new_df['geom_centroid'].astype(int)
+                new_df['rmsd_centroid'] = new_df['rmsd_centroid'].astype(int)
+                assert 1 in new_df[new_df['ubq_site'] == ubq_site]['geom_centroid'].unique()
+                assert 1 in new_df[new_df['ubq_site'] == ubq_site]['rmsd_centroid'].unique()
+                assert pd.value_counts(new_df['geom_centroid'])[2] == 3
+                assert pd.value_counts(new_df['rmsd_centroid'])[2] == 3
+                assert 'internal_rmsd' in new_df
+                if not testing:
+                    self.aa_df = new_df
         finally:
             self.ubq_sites = copied_ubq_sites
             if hasattr(self, 'trajs'): del self.trajs
@@ -960,8 +986,8 @@ class EncodermapSPREAnalysis:
             if hasattr(self, 'aa_references'): del self.aa_references
             if hasattr(self, 'cg_references'): del self.cg_references
 
-        self.check_normalization()
         self.aa_df.to_csv(self.large_df_file)
+        self.check_normalization()
 
     def fix_broken_pdbs(self):
         for ubq_num, ubq_site in enumerate(self.ubq_sites):
@@ -1281,10 +1307,14 @@ class EncodermapSPREAnalysis:
                         self.reassign_df_comp()
                         self.check_normalization(True)
 
-                print(non_norm_values.shape, norm_values.shape)
-
                 factor_is = np.unique((norm_values / non_norm_values).round(10))
-                factor_is = factor_is[np.logical_and(~np.isnan(factor_is), factor_is != 0)]
+                mask = np.logical_and(~np.isnan(factor_is), factor_is != 0)
+                factor_is = factor_is[mask]
+
+                if np.allclose(factor_is, factor_should_be):
+                    print(f'{ubq_site} at {check} is close enough.')
+                    continue
+
                 if len(factor_is) > 1:
                     if already_checked_approving_reassurance:
                         print(factor_is)
@@ -1310,7 +1340,7 @@ class EncodermapSPREAnalysis:
         * Render wireframe
 
         """
-        df_file = '/home/kevin/projects/tobias_schneider/new_images/clusters_v2.h5'
+        df_file = '/home/kevin/projects/tobias_schneider/new_images/clusters.h5'
 
         if os.path.isfile(df_file) and not overwrite and not overwrite_df_creation:
             print("df file exists. Not overwriting")
@@ -1333,10 +1363,7 @@ class EncodermapSPREAnalysis:
                                                                                           return_means=True)
 
                 # check whether normalizations still hold true
-                check_sPRE_normalization(sub_df)
-
-                # check whether sim_norm and sim_not_norm can be moved by a factor
-                raise Exception("STOP")
+                self.check_normalization()
 
                 assert np.isclose(np.sum(linear_combination), 1)
 
@@ -2538,9 +2565,6 @@ class EncodermapSPREAnalysis:
             ax.set_title("RMSD between two clusters")
             plt.tight_layout()
             plt.savefig(image_file)
-
-    def testLonLatTRaj(self):
-        traj = np.array()
 
     def get_surface_coverage(self, overwrite=False, overwrite_image=False):
         if not (hasattr(self, 'polar_coordinates_aa') or hasattr(self, 'polar_coordinates_cg')) or overwrite:

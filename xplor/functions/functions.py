@@ -450,10 +450,16 @@ def normalize_sPRE(df_comp, df_obs, kind='var', norm_res_count=10, get_factors=F
             # and check
             a = df_comp_w_norm[df_comp_w_norm['ubq_site'] == ubq_site][norm_cols].values
             b = df_comp_w_norm[df_comp_w_norm['ubq_site'] == ubq_site][non_norm_cols].values
-            test = np.unique(np.unique(a / b).round(10))
+            test = np.unique(np.unique(a / b).round(9))
             mask = np.logical_and(~np.isnan(test), test != 0)
-            test_ = test[mask]
-            if not np.isclose(test_, factor):
+            test_ = np.unique(test[mask])
+            print(test_)
+            try:
+                check = np.isclose(test_, factor)
+            except ValueError as e:
+                e2 = Exception(f"Can not compare factor {factor} to test_ {test_}. Seems like a rework is needed.")
+                raise e2 from e
+            if not check:
                 print(ubq_site, type_, test_, test, factor, values)
                 raise Exception("FUCK")
             else:
