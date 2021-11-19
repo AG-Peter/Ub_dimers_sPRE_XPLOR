@@ -405,43 +405,52 @@ def fix_pdb(traj, file, ubq_site, threshold=3, overwrite=False):
     from rotate import _get_far_and_near_networkx
     from transformations import translation_matrix
     replace_top_with_gromos(traj, ubq_site)
-    for bond in traj.top.bonds:
+    for i, frame in enumerate(traj):
+        for bond in frame.top.bonds:
 
-        bond_length = get_bond_length(traj, bond)
+            bond_length = get_bond_length(frame, bond)
 
-        if bond_length > threshold or h_bond_too_long(traj, bond):
+            if bond_length > threshold or h_bond_too_long(frame, bond):
 
-            # get the should be bond length
-            bond_text = f"{bond[0].element.symbol}-{bond[1].element.symbol}"
-            if not bond_text in bond_lengths:
-                raise Exception(f"{bond_text} not in bond_lengths")
-            should_be_bond_length = bond_lengths[bond_text]
+                # get the should be bond length
+                bond_text = f"{bond[0].element.symbol}-{bond[1].element.symbol}"
+                if not bond_text in bond_lengths:
+                    raise Exception(f"{bond_text} not in bond_lengths")
+                should_be_bond_length = bond_lengths[bond_text]
 
-            # get near and far and swich if necessary
-            near, far = _get_far_and_near_networkx(traj.top.to_bondgraph(), np.array([[bond[0].index, bond[1].index]]))
-            near = near[0]
-            far = far[0]
-            print(bond, bond_length, len(near), len(far))
-            assert bond[1].index in far
-            if len(near) < len(far):
-                near, far = far, near
-            # get the vector
-            vector = traj.xyz[0, bond[1].index] - traj.xyz[0, bond[0].index]
-            vector_length = np.linalg.norm(vector)
-            new_vector = (vector / vector_length) * should_be_bond_length
-            new_point = traj.xyz[0, bond[0].index] + new_vector
-            translation_vector = new_point - traj.xyz[0, bond[1].index]
+                # get near and far and swich if necessary
+                near, far = _get_far_and_near_networkx(frame.top.to_bondgraph(), np.array([[bond[0].index, bond[1].index]]))
+                near = near[0]
+                far = far[0]
+                print(bond, bond_length, len(near), len(far))
+                assert bond[1].index in far
+                if len(near) < len(far):
+                    near, far = far, near
+                # get the vector
+                vector = frame.xyz[0, bond[1].index] - frame.xyz[0, bond[0].index]
+                vector_length = np.linalg.norm(vector)
+                new_vector = (vector / vector_length) * should_be_bond_length
+                new_point = frame.xyz[0, bond[0].index] + new_vector
+                translation_vector = new_point - frame.xyz[0, bond[1].index]
 
-            # get the matrix
-            trans_mat = translation_matrix(translation_vector)
-            padded = np.pad(traj.xyz[0, far], ((0, 0), (0, 1)), mode='constant', constant_values=1)
-            new_points = trans_mat.dot(padded.T).T[:, :3]
-            traj.xyz[0, far] = new_points
+                # get the matrix
+                trans_mat = translation_matrix(translation_vector)
+                padded = np.pad(frame.xyz[0, far], ((0, 0), (0, 1)), mode='constant', constant_values=1)
+                new_points = trans_mat.dot(padded.T).T[:, :3]
+                traj.xyz[i, far] = new_points
 
-            # check
-            assert np.isclose(np.linalg.norm(traj.xyz[0, bond[0].index] - traj.xyz[0, bond[1].index]), should_be_bond_length)
-
-    traj.save_pdb(file)
+                # check
+                if not np.isclose(np.linalg.norm(traj.xyz[i, bond[0].index] - traj.xyz[i, bond[1].index]), should_be_bond_length, atol=0.1):
+                    if len(far) == 1:
+                        if bond[1].element.symbol == H:
+                            atoms = np.setdiff1d(np.arange(traj.n_atoms), bond[1].index)
+                            assert len(atoms) == traj.n_atoms - 1
+                            traj = traj.atom_slice(atoms)
+                            continue
+                    raise Exception(f"Could not fix bond length for bond {bond}. It should be {should_be_bond_length}, but it is {np.linalg.norm(traj.xyz[i, bond[0].index] - traj.xyz[i, bond[1].index])}")
+    if file is not None:
+        traj.save_pdb(file)
+    return traj
 
 
 def map_nested_dicts(ob, func):
@@ -514,6 +523,14 @@ class EncodermapSPREAnalysis:
     def large_df_file(self):
         return '/mnt/data/kevin/xplor_analysis_files/lowd_and_xplor_df.csv'
 
+    @property
+    def centers_prox(self):
+        return self._centers_prox
+
+    @property
+    def centers_dist(self):
+        return self._centers_dist
+
     @df_comp.setter
     def df_comp(self, csv):
         if csv == 'conect':
@@ -548,6 +565,7 @@ class EncodermapSPREAnalysis:
             df_comp['ubq_site'] = df_comp['traj_file'].map(get_ubq_site)
         df_comp['ubq_site'] = df_comp['ubq_site'].str.lower()
         self._df_comp = df_comp
+        _, self._centers_prox, self._centers_dist = normalize_sPRE(df_comp, self.df_obs)
 
     @property
     def norm_factors(self):
@@ -568,12 +586,12 @@ class EncodermapSPREAnalysis:
         self.cluster_exclusions = new_exclusions
         
     def get_mixed_correlation_plots(self, type_of_corr=None, overwrite=False,
-                                    coeff_threshold=0.1):
+                                    exclude_0_and_nan=True):
         from scipy.stats import pearsonr
         if type_of_corr is None:
-            type_of_corr = ['median_all', 'cluster_mean', 'cluster_mean', 'cluster_combination', 'all_combination']
+            type_of_corr = ['median_all', 'cluster_mean', 'cluster_mean', 'cluster_mean', 'cluster_combination', 'all_combination']
         for ubq_site_counting, ubq_site in enumerate(self.ubq_sites):
-            image_name = f"/home/kevin/projects/tobias_schneider/new_cluster_analysis/{ubq_site}_correlation_regression.png"
+            image_name = f"/home/kevin/projects/tobias_schneider/cluster_analysis_with_fixed_normalization/{ubq_site}_correlation_regression.png"
             if os.path.isfile and not overwrite:
                 print(f"File at {image_name} already exists.")
                 continue
@@ -581,7 +599,7 @@ class EncodermapSPREAnalysis:
 
             exp_value = self.df_obs[ubq_site][self.df_obs[ubq_site].index.str.contains('sPRE')].values
 
-            sub_df = self.df_comp_norm[self.df_comp_norm['ubq_site'] == ubq_site]
+            sub_df = self.aa_df[self.aa_df['ubq_site'] == ubq_site]
             sPRE_ind = [i for i in sub_df.columns if 'sPRE' in i and 'norm' in i]
 
             # create plot
@@ -594,8 +612,9 @@ class EncodermapSPREAnalysis:
                 ncols = 3
             nrows = len(type_of_corr) // ncols
             nrows += len(type_of_corr) % ncols
+            nrows += 1
             figsize = (5 * ncols, 5 * nrows)
-            fig, axes = plt.subplots(ncols=ncols, nrows=nrows, sharex=True, sharey=True, figsize=figsize)
+            fig, axes = plt.subplots(ncols=ncols, nrows=nrows, figsize=figsize)
 
             if len(type_of_corr) == 1:
                 axes = np.array([[axes]])
@@ -605,125 +624,141 @@ class EncodermapSPREAnalysis:
             print('ncols: ', ncols, 'nrows: ', nrows)
 
             with pd.HDFStore(
-                    '/home/kevin/projects/tobias_schneider/new_images/clusters_with_and_without_coeff.h5') as store:
+                    '/home/kevin/projects/tobias_schneider/new_images/clusters.h5') as store:
                 df, metadata = h5load(store)
 
-            cluster_df = df[df['ubq site'] == ubq_site]
+            cluster_df = df[df['ubq site'] == ubq_site].copy()
             cluster_df = cluster_df.sort_values('N frames', ascending=False)
             cluster_df['count id'] = np.arange(len(cluster_df))
             cluster_df['color'] = [f'C{_}' for _ in range(1, len(cluster_df) + 1)]
+            cluster_df = cluster_df.sort_values('coefficient', ascending=False)
+            cluster_df = cluster_df.reset_index()
 
-            linear_combination, cluster_means = make_linear_combination_from_clusters(self.trajs[ubq_site],
-                                                                                      self.df_comp_norm,
+            # re-check normalization
+            self.check_normalization()
+
+            # define some sorting functions
+            def sort_columns(type_, normed=False):
+                if not normed:
+                    def sort(x):
+                        if 'sPRE' in x and type_ in x and 'norm' not in x:
+                            return True
+                        else:
+                            return False
+                else:
+                    def sort(x):
+                        if 'sPRE' in x and type_ in x and 'norm' in x:
+                            return True
+                        else:
+                            return False
+                return sort
+
+            # plot prox, vs dist
+            for ax, location in zip([axes[0, 0], axes[0, 1]], ['prox', 'dist']):
+                non_norm_cols = list(filter(sort_columns(location, normed=False), sub_df.columns))
+                non_norm_cols = list(sorted(non_norm_cols, key=lambda x: int(x.split()[-2][3:])))
+                norm_cols = list(filter(sort_columns(location, normed=True), sub_df.columns))
+                norm_cols = list(sorted(norm_cols, key=lambda x: int(x.split()[-2][3:])))
+                x = sub_df[non_norm_cols].values.flatten()
+                y = sub_df[norm_cols].values.flatten()
+                mask = np.logical_and((~np.isnan(y)) & (~np.isnan(x)), (y != 0) & (x != 0))
+                x = x[mask]
+                y = y[mask]
+                ax.scatter(x, y)
+                ax.set_xlabel(r'simulated not normalized sPRE in $\mathrm{mM^{-1}ms^{-1}}$')
+                ax.set_ylabel(r'simulated sPRE in $\mathrm{mM^{-1}ms^{-1}}$')
+                ax.set_title(f"{ubq_site} {location} normalization.")
+                ax.text(0.8, 0.95, s=r'$f_{norm, ' + ubq_site + ', ' + location + r'} = ' + f'{self.norm_factors[ubq_site][location]:.2f}$', va='center', ha='center', transform=ax.transAxes)
+
+            linear_combination, cluster_means = make_linear_combination_from_clusters(None,
+                                                                                      self.aa_df,
                                                                                       self.df_obs,
                                                                                       self.fast_exchangers,
                                                                                       ubq_site=ubq_site,
                                                                                       return_means=True)
+            cluster_mean_counter = 0
+            cluster_combination_ids = []
+            cluster_combination_coeffs = []
+            cluster_combination_count_ids = []
+            for type_, ax in zip(type_of_corr, axes.flatten()[2:]):
+                ax.set_xlabel(r'experimental sPRE in $\mathrm{mM^{-1}ms^{-1}}$')
+                ax.set_ylabel(r'simulated sPRE in $\mathrm{mM^{-1}ms^{-1}}$')
 
-            iter_ = 0
-            cluster_mean_plotted = False
-            for i in range(nrows):
-                for j in range(ncols):
-                    ax = axes[i, j]
-                    ax.set_xlabel(r'experimental sPRE in $\mathrm{mM^{-1}ms^{-1}}$')
-                    ax.set_ylabel(r'simulated sPRE in $\mathrm{mM^{-1}ms^{-1}}$')
+                if type_ == 'median_all':
+                    q1, median, q2 = sub_df[sPRE_ind].quantile([0.25, 0.5, 0.75], axis='rows').values
+                    x = exp_value
+                    y = median
+                    if exclude_0_and_nan:
+                        mask = np.logical_and((~np.isnan(y)) & (~np.isnan(x)), (y != 0) & (x != 0))
+                        x = x[mask]
+                        y = y[mask]
+                        q1 = q1[mask]
+                        q2 = q2[mask]
+                    coef = np.polyfit(x, y, 1)
+                    poly1d_fn = np.poly1d(coef)
+                    ax.plot(x, y, 'o', x, poly1d_fn(x), '--k')
+                    lower = q1 - y
+                    upper = y - q2
+                    ax.errorbar(x, y, yerr=(lower, upper), ls='none', c='C0')
+                    ax.set_title("All sim values (median with IQR)")
+                    corr, _ = pearsonr(x, y)
+                    ax.text(0.8, 0.95, s=f'R = {corr:.2f}', va='center', ha='center', transform=ax.transAxes)
 
-                    try:
-                        _ = type_of_corr[iter_]
-                    except IndexError:
-                        # ax.axis('off')
-                        continue
+                if type_ == 'cluster_mean':
+                    row = cluster_df.iloc[cluster_mean_counter]
+                    cluster_mean_counter += 1
+                    cluster_combination_ids.append(row['cluster id'])
+                    cluster_combination_coeffs.append(row['coefficient'])
+                    cluster_combination_count_ids.append(row['count id'])
+                    coeff = row['coefficient']
+                    color = row['color']
+                    cluster_id = row['cluster id']
+                    count_id = row['count id']
+                    x = exp_value
+                    y = cluster_means[cluster_id]
+                    if exclude_0_and_nan:
+                        mask = np.logical_and((~np.isnan(y)) & (~np.isnan(x)), (y != 0) & (x != 0))
+                        x = x[mask]
+                        y = y[mask]
+                    coef = np.polyfit(x, y, 1)
+                    poly1d_fn = np.poly1d(coef)
+                    ax.plot(x, y, 'o', x, poly1d_fn(x), '--k')
+                    ax.set_title(f"Median of cluster {count_id} (no coefficient)")
+                    corr, _ = pearsonr(x, y)
+                    ax.text(0.8, 0.95, s=f'R = {corr:.2f}', va='center', ha='center', transform=ax.transAxes)
 
-                    if type_of_corr[iter_] == 'median_all':
-                        q1, median, q2 = sub_df[sPRE_ind].quantile([0.25, 0.5, 0.75], axis='rows').values
-                        x = exp_value
-                        y = median
-                        coef = np.polyfit(x, y, 1)
-                        poly1d_fn = np.poly1d(coef)
-                        ax.plot(x, y, 'o', x, poly1d_fn(x), '--k')
-                        lower = q1 - y
-                        upper = y - q2
-                        ax.errorbar(x, y, yerr=(lower, upper), ls='none', c='C0')
-                        ax.set_title(type_of_corr[iter_])
-                        corr, _ = pearsonr(x, y)
-                        ax.text(0.8, 0.95, s=f'R = {corr:.2f}', va='center', ha='center', transform=ax.transAxes)
-                        iter_ += 1
-                        continue
+                if type_ == 'all_combination':
+                    sim_value = np.sum(linear_combination * cluster_means.T, 1)
+                    x = exp_value
+                    y = sim_value
+                    if exclude_0_and_nan:
+                        mask = np.logical_and((~np.isnan(y)) & (~np.isnan(x)), (y != 0) & (x != 0))
+                        x = x[mask]
+                        y = y[mask]
+                    coef = np.polyfit(x, y, 1)
+                    poly1d_fn = np.poly1d(coef)
+                    ax.plot(x, y, 'o', x, poly1d_fn(x), '--k')
+                    ax.set_title(f"Combination of all {len(cluster_df)} clusters (with coefficients).")
+                    corr, _ = pearsonr(x, y)
+                    ax.text(0.8, 0.95, s=f'R = {corr:.2f}', va='center', ha='center', transform=ax.transAxes)
 
-                    if type_of_corr[iter_] == 'cluster_mean' and not cluster_mean_plotted:
-                        for row_num, row in cluster_df.iterrows():
-                            if ubq_site == 'k6':
-                                if row['count id'] not in [5, 9]:
-                                    continue
-                            if ubq_site == 'k29':
-                                if row['count id'] not in [0, 12]:
-                                    continue
-                            if ubq_site == 'k33':
-                                if row['count id'] not in [20]:
-                                    continue
+                if type_ == 'cluster_combination':
+                    where = np.array(cluster_combination_ids)
+                    cluster_combination_count_ids = np.array(cluster_combination_count_ids).astype(str)
+                    sim_value = np.sum(cluster_combination_coeffs * cluster_means[where].T, 1)
+                    x = exp_value
+                    y = sim_value
+                    if exclude_0_and_nan:
+                        mask = np.logical_and((~np.isnan(y)) & (~np.isnan(x)), (y != 0) & (x != 0))
+                        x = x[mask]
+                        y = y[mask]
+                    coef = np.polyfit(x, y, 1)
+                    poly1d_fn = np.poly1d(coef)
+                    ax.plot(x, y, 'o', x, poly1d_fn(x), '--k')
+                    ax.set_title(f"Combination of clusters {', '.join(cluster_combination_count_ids)} (with coefficients)")
+                    corr, _ = pearsonr(x, y)
+                    ax.text(0.8, 0.95, s=f'R = {corr:.2f}', va='center', ha='center', transform=ax.transAxes)
 
-                            ax = list_of_axes[iter_]
-                            coeff = row['coefficient']
-                            color = row['color']
-                            cluster_id = row['cluster id']
-                            count_id = row['count id']
-                            x = exp_value
-                            y = cluster_means[cluster_id]
-                            coef = np.polyfit(x, y, 1)
-                            poly1d_fn = np.poly1d(coef)
-                            ax.plot(x, y, 'o', x, poly1d_fn(x), '--k')
-                            ax.set_title(type_of_corr[iter_] + str(count_id))
-                            corr, _ = pearsonr(x, y)
-                            ax.text(0.8, 0.95, s=f'R = {corr:.2f}', va='center', ha='center', transform=ax.transAxes)
-                            iter_ += 1
-                        cluster_mean_plotted = True
-                        continue
-
-                    if type_of_corr[iter_] == 'all_combination':
-                        ax = axes[2, 0]
-                        sim_value = np.sum(linear_combination * cluster_means.T, 1)
-                        y = sim_value
-                        coef = np.polyfit(x, y, 1)
-                        poly1d_fn = np.poly1d(coef)
-                        ax.plot(x, y, 'o', x, poly1d_fn(x), '--k')
-                        ax.set_title(type_of_corr[iter_])
-                        corr, _ = pearsonr(x, y)
-                        ax.text(0.8, 0.95, s=f'R = {corr:.2f}', va='center', ha='center', transform=ax.transAxes)
-                        iter_ += 1
-                        continue
-
-                    if type_of_corr[iter_] == 'cluster_combination':
-                        if ubq_site == 'k6':
-                            clusters = [5, 9]
-                        if ubq_site == 'k29':
-                            clusters = [0, 12]
-                        if ubq_site == 'k33':
-                            clusters = [20]
-                        ax = axes[1, 1]
-                        where = [i in clusters for i in cluster_df['count id']]
-                        cluster_ids = cluster_df[where]['cluster id']
-                        coeffs = cluster_df[where]['coefficient'].values
-                        sim_value = np.sum(coeffs * cluster_means[cluster_ids].T, 1)
-                        y = sim_value
-                        coef = np.polyfit(x, y, 1)
-                        poly1d_fn = np.poly1d(coef)
-                        ax.plot(x, y, 'o', x, poly1d_fn(x), '--k')
-                        ax.set_title(type_of_corr[iter_])
-                        corr, _ = pearsonr(x, y)
-                        ax.text(0.8, 0.95, s=f'R = {corr:.2f}', va='center', ha='center', transform=ax.transAxes)
-                        iter_ += 1
-                        continue
-
-            if ubq_site == 'k33':
-                ax = axes[2, 0]
-                sim_value = np.sum(linear_combination * cluster_means.T, 1)
-                y = sim_value
-                coef = np.polyfit(x, y, 1)
-                poly1d_fn = np.poly1d(coef)
-                ax.plot(x, y, 'o', x, poly1d_fn(x), '--k')
-                ax.set_title('all_combination')
-                corr, _ = pearsonr(x, y)
-                ax.text(0.8, 0.95, s=f'R = {corr:.2f}', va='center', ha='center', transform=ax.transAxes)
             plt.savefig(image_name)
 
     def prepare_csv_files(self, overwrite=False):
@@ -732,9 +767,9 @@ class EncodermapSPREAnalysis:
             df, metadata = h5load(store)
 
         for ubq_count, ubq_site in enumerate(self.ubq_sites):
-            csv_file = f'/home/kevin/projects/tobias_schneider/new_cluster_analysis/per_residue_values_and_combinations_{ubq_site}.csv'
-            linear_combination, cluster_means_norm, cluster_mean_not_norm = make_linear_combination_from_clusters(self.trajs[ubq_site],
-                                                                                      self.df_comp_norm,
+            csv_file = f'/home/kevin/projects/tobias_schneider/cluster_analysis_with_fixed_normalization/per_residue_values_and_combinations_{ubq_site}.csv'
+            linear_combination, cluster_means_norm, cluster_mean_not_norm = make_linear_combination_from_clusters(None,
+                                                                                      self.aa_df,
                                                                                       self.df_obs,
                                                                                       self.fast_exchangers,
                                                                                       ubq_site=ubq_site,
@@ -932,7 +967,7 @@ class EncodermapSPREAnalysis:
                     aa = np.load(os.path.join(self.analysis_dir, f'cluster_membership_aa_{ubq_site}.npy'))
                     cg = np.load(os.path.join(self.analysis_dir, f'cluster_membership_cg_{ubq_site}.npy'))
                     n_aa_in_cluster = len(np.where(aa == cluster_num)[0])
-                    n_cg_in_cluster = len(np.where(cg == cluster_num))
+                    n_cg_in_cluster = len(np.where(cg == cluster_num)[0]) # was missing the [0]
                     percent = n_aa_in_cluster / n_cg_in_cluster * 100
                     ensemble_percent = (n_aa_in_cluster + n_cg_in_cluster) / (len(aa) + len(cg)) * 100
                     del aa
@@ -996,7 +1031,7 @@ class EncodermapSPREAnalysis:
                 if count_id == -1:
                     continue
                 # df = sub_df[sub_df['count_id'] == count_id]
-                pdb_file = f'/home/kevin/projects/tobias_schneider/new_cluster_analysis/{ubq_site}/cluster_{count_id}/cluster.pdb'
+                pdb_file = f'/home/kevin/projects/tobias_schneider/cluster_analysis_with_fixed_normalization/{ubq_site}/cluster_{count_id}/cluster.pdb'
                 traj = md.load(pdb_file)
                 if ubq_site == 'k33':
                     if count_id in [12, 16, 18, 22]:
@@ -1342,6 +1377,11 @@ class EncodermapSPREAnalysis:
         """
         df_file = '/home/kevin/projects/tobias_schneider/new_images/clusters.h5'
 
+        if not hasattr(self, 'aa'):
+            self.aa = {ubq_site: np.load(os.path.join(self.analysis_dir, f'cluster_membership_aa_{ubq_site}.npy')) for ubq_site in self.ubq_sites}
+        if not hasattr(self, 'cg'):
+            self.cg = {ubq_site: np.load(os.path.join(self.analysis_dir, f'cluster_membership_cg_{ubq_site}.npy')) for ubq_site in self.ubq_sites}
+
         if os.path.isfile(df_file) and not overwrite and not overwrite_df_creation:
             print("df file exists. Not overwriting")
             with pd.HDFStore(df_file) as store:
@@ -1352,7 +1392,6 @@ class EncodermapSPREAnalysis:
             metadata = {}
 
             for ubq_num, ubq_site in enumerate(pd.unique(self.aa_df['ubq_site'])):
-
                 sub_df = self.aa_df[self.aa_df['ubq_site'] == ubq_site]
 
                 linear_combination, cluster_means = make_linear_combination_from_clusters(None,
@@ -1368,8 +1407,7 @@ class EncodermapSPREAnalysis:
                 assert np.isclose(np.sum(linear_combination), 1)
 
                 # get some values true for all clusters and start the dict with data
-                n_frames_total = self.trajs[ubq_site].n_frames
-                aa_cluster_nums = np.unique(self.aa_trajs[ubq_site].cluster_membership)
+                aa_cluster_nums = np.unique(sub_df['cluster_membership'])
                 exp_values = self.df_obs[ubq_site][self.df_obs[ubq_site].index.str.contains('sPRE')].values
                 mean_abs_diff_full_combination = np.mean(np.abs(np.sum(linear_combination * cluster_means.T, 1) - exp_values))
 
@@ -1378,34 +1416,26 @@ class EncodermapSPREAnalysis:
                            'mean abs diff to exp w/ coeff': [], 'mean abs diff to exp w/o coeff': []}
 
                 for cluster_num, (coefficient, cluster_mean) in enumerate(zip(linear_combination, cluster_means)):
+                    if cluster_num == -1:
+                        continue
                     if cluster_num not in aa_cluster_nums:
                         print(f"Cluster {cluster_num} not in aa trajs")
                         continue
 
                     print(f"At cluster num {cluster_num}")
-                    points_in_cluster = len(np.where(self.trajs[ubq_site].cluster_membership == cluster_num)[0])
-                    aa_where = np.where(self.aa_trajs[ubq_site].cluster_membership == cluster_num)[0]
-                    ensemble_percent = points_in_cluster / n_frames_total * 100
-                    aa_percent = len(aa_where) / points_in_cluster * 100
-                    indices = self.aa_trajs[ubq_site].index_arr[aa_where]
+                    points_in_cluster = len(np.where(self.aa[ubq_site] == cluster_num)[0]) + len(np.where(self.cg[ubq_site] == cluster_num)[0])
+                    ensemble_percent = points_in_cluster / (len(self.aa[ubq_site]) + len(self.cg[ubq_site])) * 100
+                    aa_percent = len(np.where(self.aa[ubq_site] == cluster_num)[0]) / points_in_cluster * 100
+                    self.aa_df.at[(self.aa_df['ubq_site'] == ubq_site) & (self.aa_df['rmsd_centroid'] == cluster_num), 'ensemble_percent'] = ensemble_percent
+                    self.aa_df.at[(self.aa_df['ubq_site'] == ubq_site) & (self.aa_df['rmsd_centroid'] == cluster_num), 'aa_percent'] = aa_percent
 
-                    # get the RMSD centroidf for internal RMSD calculations
-                    max_frames = 500
-                    view, dummy_traj = gen_dummy_traj(self.aa_trajs[ubq_site], cluster_num, max_frames=max_frames,
-                                                      superpose=True)
-                    where = np.where(self.aa_trajs[ubq_site].cluster_membership == cluster_num)[0]
-                    idx = np.round(np.linspace(0, len(where) - 1, max_frames)).astype(int)
-                    where = where[idx]
-                    index, mat, centroid = rmsd_centroid_of_cluster(dummy_traj)
+                    # some assert
+                    # assert np.isclose(aa_percent, sub_df[sub_df['rmsd_centroid'] == cluster_num]['aa_percent']).all()
+                    assert np.isclose(aa_percent, self.aa_df.loc[(self.aa_df['ubq_site'] == ubq_site) & (self.aa_df['rmsd_centroid'] == cluster_num), 'aa_percent']).all()
+                    assert np.isclose(ensemble_percent, self.aa_df.loc[(self.aa_df['ubq_site'] == ubq_site) & (self.aa_df['rmsd_centroid'] == cluster_num), 'ensemble_percent']).all()
 
-                    for j, (traj_num, frame_num) in enumerate(indices):
-                        if j % 250 == 0:
-                            print(f"Building cluster traj for {cluster_num}. At step {j}")
-                        if j == 0:
-                            traj = self.aa_trajs[ubq_site][traj_num][frame_num].traj
-                        else:
-                            traj = traj.join(self.aa_trajs[ubq_site][traj_num][frame_num].traj)
-                    internal_rmsd = md.rmsd(traj, centroid)
+                    # get the rmsd centroid
+                    internal_rmsd = sub_df[sub_df['rmsd_centroid'] == cluster_num]['internal_rmsd']
 
                     # get the mean abs diff to the linear combination
                     mean_abs_diff = np.mean(np.abs(coefficient * cluster_mean - exp_values))
@@ -1416,11 +1446,11 @@ class EncodermapSPREAnalysis:
                     df_data['ensemble %'].append(ensemble_percent)
                     df_data['ubq site'].append(ubq_site)
                     df_data['aa %'].append(aa_percent)
-                    df_data['internal RMSD'].append(np.var(internal_rmsd))
+                    df_data['internal RMSD'].append(internal_rmsd)
                     df_data['coefficient'].append(coefficient)
                     df_data['mean abs diff to exp w/ coeff'].append(mean_abs_diff)
                     df_data['mean abs diff to exp w/o coeff'].append(mean_abs_diff_no_coeff)
-                if i == 0:
+                if ubq_num == 0:
                     df = pd.DataFrame(df_data)
                 else:
                     df = pd.concat([df, pd.DataFrame(df_data)], ignore_index=True)
@@ -1440,17 +1470,17 @@ class EncodermapSPREAnalysis:
             for j, row in sub_df.iterrows():
                 cluster_num = row['cluster id']
                 count_id = np.where(np.sort(sub_df['N frames'])[::-1] == row['N frames'])[0][0]
-                cluster_dir = f'/home/kevin/projects/tobias_schneider/new_cluster_analysis/{ubq_site}/cluster_{count_id}/'
+                cluster_dir = f'/home/kevin/projects/tobias_schneider/cluster_analysis_with_fixed_normalization/{ubq_site}/cluster_{count_id}/'
                 os.makedirs(cluster_dir, exist_ok=True)
                 image_file = os.path.join(cluster_dir, 'polar_plot.png')
-                pdb_file = os.path.join(cluster_dir, 'cluster.pdb')
-                xtc_file = os.path.join(cluster_dir, 'cluster.xtc')
+                pdb_file_out = os.path.join(cluster_dir, 'cluster.pdb')
+                xtc_file_out = os.path.join(cluster_dir, 'cluster.xtc')
                 surface_coverage_cluster_file = os.path.join(cluster_dir, 'surface_coverage.pdb')
                 rmsd_centroid_index_file = os.path.join(cluster_dir, 'cluster_rmsd_centroid_index.npy')
 
                 if not os.path.isfile(image_file) or overwrite or overwrite_polar_plots:
-                    where_aa = np.where(self.aa_trajs[ubq_site].cluster_membership == row['cluster id'])[0]
-                    where_cg = np.where(self.cg_trajs[ubq_site].cluster_membership == row['cluster id'])[0]
+                    where_aa = np.where(self.aa[ubq_site] == row['cluster id'])[0]
+                    where_cg = np.where(self.cg[ubq_site] == row['cluster id'])[0]
                     plt.close('all')
                     fig, ax = plt.subplots(subplot_kw={'projection': ccrs.EckertIV()})
                     ax = add_reference_to_map(ax)
@@ -1479,27 +1509,39 @@ class EncodermapSPREAnalysis:
 
                     plt.savefig(image_file)
 
-                if not os.path.isfile(pdb_file) or overwrite_pdb_files:
-                    max_frames = 500
-                    if not cluster_num in np.unique(self.aa_trajs[ubq_site].cluster_membership):
-                        continue
-                    view, dummy_traj = gen_dummy_traj(self.aa_trajs[ubq_site], cluster_num, max_frames=max_frames,
-                                                      superpose=True)
-                    where = np.where(self.aa_trajs[ubq_site].cluster_membership == cluster_num)[0]
-                    idx = np.round(np.linspace(0, len(where) - 1, max_frames)).astype(int)
-                    where = where[idx]
-                    index, mat, rmsd_centroid = rmsd_centroid_of_cluster(dummy_traj)
-                    rmsd_centroid_index = where[index]
-                    rmsd_centroid.save_pdb(pdb_file)
-                    if row['coefficient'] > coeff_threshold:
-                        dummy_traj.save_xtc(xtc_file)
-                    np.save(rmsd_centroid_index_file, rmsd_centroid_index)
+                if not os.path.isfile(pdb_file_out) or overwrite_pdb_files:
+                    # save and load the rmsd centroid
+                    print(list(filter(lambda x: False if any([i in x for i in ['sPRE', '15N', 'RWMD']]) else True, self.aa_df.columns)))
+                    aa_df_row = self.aa_df[(self.aa_df['rmsd_centroid'] == cluster_num) & (self.aa_df['ubq_site'] == ubq_site)]
+                    xtc_file, top_file, frame = aa_df_row[['traj_file', 'top_file', 'frame']].values[0]
+                    centroid = md.load_frame(xtc_file, frame, top=top_file)
+                    cryst = md.load('/home/kevin/1UBQ.pdb')
+                    centroid.superpose(reference=cryst, atom_indices=centroid.top.select('name CA and resid >= 76'),
+                                       ref_atom_indices=cryst.top.select('name CA'))
+                    if one_bond_too_long(centroid, 3):
+                        print(f"Too long bonds for cluster {cluster_num} at ubq_site {ubq_site}.")
+                        fix_pdb(traj, pdb_file_out, ubq_site)
+
+                    # save and load the 20 representative structures
+                    aa_df_rows = self.aa_df[(self.aa_df['20_selected_for_rendering'] == cluster_num) & (self.aa_df['ubq_site'] == ubq_site)]
+                    xtc_files, top_files, frames = np.vstack(aa_df_rows[['traj_file', 'top_file', 'frame']].values).T
+                    for frame_count, (xtc_file, top_file, frame) in enumerate(zip(xtc_files, top_files, frames)):
+                        if frame_count == 0:
+                            traj = md.load_frame(xtc_file, frame, top=top_file)
+                        else:
+                            traj = traj.join(md.load_frame(xtc_file, frame, top=top_file))
+                    traj.superpose(reference=cryst, atom_indices=centroid.top.select('name CA and resid >= 76'),
+                                   ref_atom_indices=cryst.top.select('name CA'))
+                    if one_bond_too_long(centroid, 3):
+                        print(f"Too long bonds for cluster {cluster_num} at ubq_site {ubq_site}.")
+                        traj = fix_pdb(traj, None, ubq_site)
+                    traj.save_xtc(xtc_file_out)
 
                 if not os.path.isfile(surface_coverage_cluster_file) or overwrite_surface_coverage:
                     pass
 
-            linear_combination, cluster_means = make_linear_combination_from_clusters(self.trajs[ubq_site],
-                                                                                      self.df_comp_norm,
+            linear_combination, cluster_means = make_linear_combination_from_clusters(None,
+                                                                                      self.aa_df,
                                                                                       self.df_obs,
                                                                                       self.fast_exchangers,
                                                                                       ubq_site=ubq_site,
@@ -1521,9 +1563,9 @@ class EncodermapSPREAnalysis:
             cluster_combination_str = '_and_'.join(np.sort(count_ids[where]).astype(str))
             cluster_combination_str_no_underscore = ' and '.join(np.sort(count_ids[where]).astype(str))
 
-            final_combination_image = f'/home/kevin/projects/tobias_schneider/new_cluster_analysis/{ubq_site}/combination_of_clusters_{cluster_combination_str}.png'
-            final_combination_image_all = f'/home/kevin/projects/tobias_schneider/new_cluster_analysis/{ubq_site}/all_sims_confidence.png'
-            final_correlation_image_all = f'/home/kevin/projects/tobias_schneider/new_cluster_analysis/{ubq_site}/correlation_plot.png'
+            final_combination_image = f'/home/kevin/projects/tobias_schneider/cluster_analysis_with_fixed_normalization/{ubq_site}/combination_of_clusters_{cluster_combination_str}.png'
+            final_combination_image_all = f'/home/kevin/projects/tobias_schneider/cluster_analysis_with_fixed_normalization/{ubq_site}/all_sims_confidence.png'
+            final_correlation_image_all = f'/home/kevin/projects/tobias_schneider/cluster_analysis_with_fixed_normalization/{ubq_site}/correlation_plot.png'
             exp_value = self.df_obs[ubq_site][self.df_obs[ubq_site].index.str.contains('sPRE')].values
             if not os.path.isfile(final_combination_image) or overwrite_final_combination:
                 plt.close('all')
@@ -1578,11 +1620,11 @@ class EncodermapSPREAnalysis:
                 plt.close('all')
                 fig, (ax1, ax2,) = plt.subplots(nrows=2, figsize=(20, 10))
 
-                from xplor.nmr_plot import plot_line_data
+                from xplor.nmr_plot import plot_line_data, plot_hatched_bars
 
                 (ax1, ax2) = plot_line_data((ax1, ax2), self.df_obs, {'rows': 'sPRE', 'cols': ubq_site})
                 (ax1, ax2) = plot_hatched_bars((ax1, ax2), self.fast_exchangers, {'cols': 'k6'}, color='k')
-                (ax1, ax2), color, (iqr_color, iqr_plus_q_color) = plot_confidence_intervals((ax1, ax2), self.df_comp_norm, {'rows': 'sPRE', 'cols': ubq_site}, cbar=False, with_outliers=False)
+                (ax1, ax2), color, (iqr_color, iqr_plus_q_color) = plot_confidence_intervals((ax1, ax2), self.aa_df, {'rows': 'sPRE', 'cols': ubq_site}, cbar=False, with_outliers=False)
 
                 ax1.set_title(f'{ubq_site.upper()}-diUbi proximal')
                 ax2.set_title(f'{ubq_site.upper()}-diUbi distal')
@@ -1592,11 +1634,11 @@ class EncodermapSPREAnalysis:
                     ax = color_labels(ax, positions=centers)
                     ax.set_ylabel(r'sPRE in $\mathrm{mM^{-1}ms^{-1}}$')
 
-                index = ['sPRE' in col for col in self.df_comp_norm.columns]
-                index = self.df_comp_norm.columns[index]
+                index = ['sPRE' in col for col in self.aa_df.columns]
+                index = self.aa_df.columns[index]
                 if index.str.contains('normalized').any():
                     index = index[index.str.contains('normalized')]
-                q1, median, q3 = self.df_comp_norm[index].quantile([0.25, 0.5, 0.75], axis='rows').values
+                q1, median, q3 = self.aa_df[index].quantile([0.25, 0.5, 0.75], axis='rows').values
 
                 mean_abs_diff = np.mean(np.abs(median - exp_value))
                 ax1.text(0.95, 0.80, f"mean abs diff exp/(median all sims) = {mean_abs_diff:.1f}",
@@ -1647,7 +1689,7 @@ class EncodermapSPREAnalysis:
                 to_plot = ['mean', {'final_combination': sim_value}] + clusters_to_plot
 
                 (ax1, ax2) = plot_hatched_bars((ax1, ax2), self.fast_exchangers, {'cols': 'k6'}, color='k')
-                (ax1, ax2) = plot_correlation_plot((ax1, ax2), self.df_obs, self.df_comp_norm, {'rows': 'sPRE', 'cols': ubq_site},
+                (ax1, ax2) = plot_correlation_plot((ax1, ax2), self.df_obs, self.aa_df, {'rows': 'sPRE', 'cols': ubq_site},
                                                    correlations=to_plot)
 
                 for ax, centers in zip([ax1, ax2], [self.centers_prox, self.centers_dist - 76]):
@@ -1658,6 +1700,9 @@ class EncodermapSPREAnalysis:
 
                 plt.tight_layout()
                 plt.savefig(final_correlation_image_all)
+
+        if hasattr(self, 'aa'): del self.aa
+        if hasattr(self, 'cg'): del self.cg
 
     def load_trajs(self, overwrite=False):
         """Loads the trajs from disk and adds the following attributes:
@@ -2366,7 +2411,9 @@ class EncodermapSPREAnalysis:
         plt.savefig(out_file.replace('.png', '.pdf'))
 
     def fitness_assessment(self, overwrite=False, overwrite_image=False):
-        json_savefile = os.path.join(self.analysis_dir, f'quality_factors.json')
+        print("Manually setting cluster exclusions to exclude no clusters.")
+        self.cluster_exclusions = {ubq_site: [] for ubq_site in self.ubq_sites}
+        json_savefile = os.path.join(self.analysis_dir, f'quality_factors_with_fixed_normalization.json')
         self.quality_factor_means = {ubq_site: [] for ubq_site in self.ubq_sites}
         if not os.path.isfile(json_savefile) or overwrite:
             self.all_quality_factors = {ubq_site: {} for ubq_site in self.ubq_sites}
@@ -2376,26 +2423,24 @@ class EncodermapSPREAnalysis:
 
         if overwrite:
             for ubq_site in self.ubq_sites:
-                # get cluster means
-                df = self.df_comp_norm.copy()
-                df = df.fillna(0)
-                df_obs = self.df_obs.copy()
-                obs = df_obs[df_obs.index.str.contains('sPRE')][ubq_site].values
+                obs = self.df_obs[self.df_obs.index.str.contains('sPRE')][ubq_site].values
 
-                df = df[df['ubq_site'] == ubq_site]
+                df = self.aa_df[self.aa_df['ubq_site'] == ubq_site]
                 sPRE_ind = [i for i in df.columns if 'sPRE' in i and 'norm' in i]
 
                 # put cluster membership into df
-                cluster_membership_sPRE = []
-                for i, traj in enumerate(self.trajs[ubq_site]):
-                    frames = df[df['traj_file'] == traj.traj_file]['frame'].values
-                    cluster_membership_sPRE.append(traj.cluster_membership[frames])
-                cluster_membership_sPRE = np.hstack(cluster_membership_sPRE)
-                df['cluster_membership'] = cluster_membership_sPRE
+                cluster_membership_sPRE = df['cluster_membership']
+
+                # old stuff from when the aa_df was not working
+                # for i, traj in enumerate(self.trajs[ubq_site]):
+                #     frames = df[df['traj_file'] == traj.traj_file]['frame'].values
+                #     cluster_membership_sPRE.append(traj.cluster_membership[frames])
+                # cluster_membership_sPRE = np.hstack(cluster_membership_sPRE)
+                # df['cluster_membership'] = cluster_membership_sPRE
 
                 # calculcate the per-cluster per-residue median
                 cluster_means = {}
-                allowed_clusters = np.unique(self.aa_trajs[ubq_site].cluster_membership)[1:]
+                allowed_clusters = np.unique(cluster_membership_sPRE)[1:]
                 for cluster_num in allowed_clusters:
                     if cluster_num == -1:
                         continue
@@ -2407,7 +2452,7 @@ class EncodermapSPREAnalysis:
 
                 # n_clust = self.trajs[ubq_site].cluster_membership.max() + 1
                 n_clust = len(allowed_clusters)
-                print('checking clusters for ', ubq_site, np.unique(self.aa_trajs[ubq_site].cluster_membership), n_clust)
+                print('checking clusters for ', ubq_site, allowed_clusters, n_clust)
                 for no_of_considered_clusters in range(2, n_clust + 1):
                     print(f'considering {no_of_considered_clusters} clusters')
                     combinations = itertools.combinations(allowed_clusters, no_of_considered_clusters)
@@ -2427,7 +2472,7 @@ class EncodermapSPREAnalysis:
                             print(f"Cluster in combination {combination} was excluded")
                             continue
                         # solv = scipy.optimize.nnls(np.vstack([cluster_means[c] for c in combination]).T[~fast_exchange], obs[~fast_exchange])[0]
-                        solv = make_linear_combination_from_clusters(self.aa_trajs[ubq_site], self.df_comp_norm, self.df_obs,
+                        solv = make_linear_combination_from_clusters(None, self.aa_df, self.df_obs,
                                                                      self.fast_exchangers, ubq_site, cluster_nums=combination)
                         result = np.sum(solv * np.vstack([cluster_means[c] for c in combination]).T, 1)
                         diff = float(np.mean(np.abs(result[~fast_exchange] - obs[~fast_exchange])))
@@ -2439,7 +2484,7 @@ class EncodermapSPREAnalysis:
                     json.dump(self.all_quality_factors, f)
 
         for ubq_site in self.ubq_sites:
-            image_file = os.path.join(self.analysis_dir, f'quality_factors_{ubq_site}.png')
+            image_file = f'/home/kevin/projects/tobias_schneider/cluster_analysis_with_fixed_normalization/fitness_assessment_{ubq_site}.png'
             if not os.path.isfile(image_file) or overwrite or overwrite_image:
                 plt.close('all')
                 # data = np.array(self.quality_factor_means[ubq_site])
@@ -2573,7 +2618,7 @@ class EncodermapSPREAnalysis:
         for ubq_site in self.ubq_sites:
             if self.polar_coordinates_aa[ubq_site] == [[], []] or overwrite:
                 image_file = os.path.join(self.analysis_dir, f'surface_coverage_{ubq_site}.png')
-                image_file2 = f'/home/kevin/projects/tobias_schneider/new_cluster_analysis/{ubq_site}/surface_coverage_{ubq_site}.png'
+                image_file2 = f'/home/kevin/projects/tobias_schneider/cluster_analysis_with_fixed_normalization/{ubq_site}/surface_coverage_{ubq_site}.png'
                 polar_coordinates_aa_file = os.path.join(self.analysis_dir, f'polar_coordinates_aa_{ubq_site}.npy')
                 polar_coordinates_cg_file = os.path.join(self.analysis_dir, f'polar_coordinates_cg_{ubq_site}.npy')
 
@@ -3066,7 +3111,10 @@ class EncodermapSPREAnalysis:
             self.aa_trajs[ubq_site].load_CVs(aa_lowd, attr_name='lowd')
             self.cg_trajs[ubq_site].load_CVs(cg_lowd, attr_name='lowd')
 
-def one_bond_too_long(frame, threshold=8):
+def one_bond_too_long(traj, threshold=8):
+    return np.any([one_bond_too_long_frame(frame, threshold) for frame in traj])
+
+def one_bond_too_long_frame(frame, threshold=8):
     return np.any([get_bond_length(frame, bond) > threshold for bond in frame.top.bonds])
 
 def get_bond_length(frame, bond):

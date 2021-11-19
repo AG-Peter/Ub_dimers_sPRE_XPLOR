@@ -471,7 +471,7 @@ def normalize_sPRE(df_comp, df_obs, kind='var', norm_res_count=10, get_factors=F
 
     df_comp_w_norm = df_comp_w_norm.fillna(0)
 
-    return df_comp_w_norm, centers_prox, centers_dist
+    return df_comp_w_norm, centers_prox - 76, centers_dist
 
 
 def call_xplor_with_yaml(pdb_file, psf_file=None, yaml_file='', from_tmp=False,
