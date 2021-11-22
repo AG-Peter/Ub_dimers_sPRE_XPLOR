@@ -79,7 +79,7 @@ variable. The torsion angles of the backbone are another widely used example of 
 $\phi$ and $\psi$ dihedral angles a ramachandran plot can be created to visualize and simplify the complex structure 
 of proteins. In this paper we faced the challenge to unify the CG and AA data, meaning CVs needed to be identical 
 for both types of MD data. Torsional angles could not be calculated from CG data, as the backbone N C and CA atoms 
-are unified within one CG bead. Distance matrices between all CA atoms would yield a $nCR(15, 2) = 11476$ 
+are unified within one CG bead. Distance matrices between all CA atoms would yield a ${15\choose2} = 11476$ 
 dimensional dataset. We chose to use the approcah also used by Berg at al. employing residue-wise minimal distances, 
 which makes the input data 152-dimensional.
 
@@ -89,15 +89,24 @@ We used the Encodermap's auto-encoder neural network to retrieve a dimensionally
 aforementioned simulations. The high-dimensional input data was fed into a dense, fully-connected sequential neural 
 network comprised 250, 250, 125, 2, 125, 250, and 250 neurons. We used the tensorflow python library to minimize 
 three cost functions:
-- Center cost: Mean absolute distance between all points and the coordinate origin.
-- Auto cost: 
+
+- Center cost: Mean absolute distance between all points and the coordinate origin
+
+$CenterLoss = \frac{\sum^n_{i=1} \hat y_i^2}
+  {n}$
+
+- Auto cost: Compare the mean absolute difference between input and output
+
+$AutoLoss = \frac{\sum^n_{i=1}\lVert  \sqrt{y_i^2 - \hat y_i^2} \rVert}{n}$
+
+- Encodermap cost: Compare the input and the latent space by transforming it with sketch-map's sigmoid function.
 
 to be tanh  for all but the input and bottleneck layers. The sigmoid function which transforms the high-dimensional 
 input space and the low-dimensional latent space wes using the following parameters:
 
-| Sigma | A | B | sigma | a | b |
-|-------|---|---|-------|---|---|
-| 5.9   | 12| 4 | 5.9   | 2 | 4 |
+| $\sigma_{highd}$ | A | B | $\sigma_{lowd}$ | a | b |
+|------------------|---|---|-----------------|---|---|
+| 5.9              | 12| 4 | 5.9             | 2 | 4 |
 
 The  resulting 2D projection was used as input to HDBSCAN clustering.
 

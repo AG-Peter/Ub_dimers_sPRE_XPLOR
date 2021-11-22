@@ -68,13 +68,14 @@ if not 'analysis' in globals():
     analysis = xplor.functions.EncodermapSPREAnalysis(['k6', 'k29', 'k33'])
     analysis.df_comp = 'all_frames'
     analysis.make_large_df(False)
-    analysis.add_count_ids(False)
+    # analysis.add_count_ids(False)
 # analysis.fix_broken_pdbs()
 # analysis.add_centroids_to_df(testing=False)
 # analysis.check_normalization()
 # analysis.run_per_cluster_analysis(overwrite=True)
 # analysis.get_mixed_correlation_plots(overwrite=True)
-analysis.fitness_assessment(True)
+# analysis.fitness_assessment(True)
+analysis.cluster_analysis(overwrite=True)
 # analysis.prepare_csv_files(overwrite=True)
 
 # %%

@@ -13,6 +13,8 @@ import mdtraj as md
 import numpy as np
 import pandas as pd
 import sklearn
+from joblib import Parallel, delayed
+from multiprocessing import cpu_count as mp_cpu_count
 from scipy.stats import norm as scipy_norm
 from sklearn.mixture import GaussianMixture as GMM
 import os, sys, glob, multiprocessing, copy, ast, subprocess, yaml, shutil, scipy, json
@@ -2410,10 +2412,20 @@ class EncodermapSPREAnalysis:
         plt.savefig(out_file, dpi=300)
         plt.savefig(out_file.replace('.png', '.pdf'))
 
-    def fitness_assessment(self, overwrite=False, overwrite_image=False):
+    def fitness_assessment(self, overwrite=False, overwrite_image=False,
+                           parallel=True):
         print("Manually setting cluster exclusions to exclude no clusters.")
         self.cluster_exclusions = {ubq_site: [] for ubq_site in self.ubq_sites}
-        json_savefile = os.path.join(self.analysis_dir, f'quality_factors_with_fixed_normalization.json')
+        if not parallel:
+            json_savefile = os.path.join(self.analysis_dir, f'quality_factors_with_fixed_normalization.json')
+        else:
+            def parallel_fitness_assesment(cluster_nums, fast_exch):
+                solv = make_linear_combination_from_clusters(None, self.aa_df, self.df_obs,
+                                                             self.fast_exchangers, ubq_site, cluster_nums=cluster_nums)
+                result = np.sum(solv * np.vstack([cluster_means[c] for c in cluster_nums]).T, 1)
+                diff = float(np.mean(np.abs(result[~fast_exch] - obs[~fast_exch])))
+                return ', '.join([str(c) for c in cluster_nums]), diff
+            json_savefile = os.path.join(self.analysis_dir, f'quality_factors_with_fixed_normalization_parallel.json')
         self.quality_factor_means = {ubq_site: [] for ubq_site in self.ubq_sites}
         if not os.path.isfile(json_savefile) or overwrite:
             self.all_quality_factors = {ubq_site: {} for ubq_site in self.ubq_sites}
@@ -2461,25 +2473,36 @@ class EncodermapSPREAnalysis:
                         continue
                     else:
                         self.all_quality_factors[ubq_site][str(no_of_considered_clusters)] = {}
-                    for i, combination in enumerate(combinations):
-                        combination = np.asarray(combination)
-                        if i == 0:
-                            print(f"First combination: {combination}")
-                        if np.any([np.isnan(cluster_means[c]) for c in combination]):
-                            print(f"Cluster in combination {combination} does not occur in aa.")
-                            continue
-                        if np.any([c in self.cluster_exclusions[ubq_site] for c in combination]):
-                            print(f"Cluster in combination {combination} was excluded")
-                            continue
-                        # solv = scipy.optimize.nnls(np.vstack([cluster_means[c] for c in combination]).T[~fast_exchange], obs[~fast_exchange])[0]
-                        solv = make_linear_combination_from_clusters(None, self.aa_df, self.df_obs,
-                                                                     self.fast_exchangers, ubq_site, cluster_nums=combination)
-                        result = np.sum(solv * np.vstack([cluster_means[c] for c in combination]).T, 1)
-                        diff = float(np.mean(np.abs(result[~fast_exchange] - obs[~fast_exchange])))
-                        self.all_quality_factors[ubq_site][str(no_of_considered_clusters)][', '.join([str(c) for c in combination])] = diff
+                    if not parallel:
+                        for i, combination in enumerate(combinations):
+                            combination = np.asarray(combination)
+                            if i == 0:
+                                print(f"First combination: {combination}")
+                            if np.any([np.isnan(cluster_means[c]) for c in combination]):
+                                print(f"Cluster in combination {combination} does not occur in aa.")
+                                continue
+                            if np.any([c in self.cluster_exclusions[ubq_site] for c in combination]):
+                                print(f"Cluster in combination {combination} was excluded")
+                                continue
+                            # solv = scipy.optimize.nnls(np.vstack([cluster_means[c] for c in combination]).T[~fast_exchange], obs[~fast_exchange])[0]
+                            solv = make_linear_combination_from_clusters(None, self.aa_df, self.df_obs,
+                                                                         self.fast_exchangers, ubq_site, cluster_nums=combination)
+                            result = np.sum(solv * np.vstack([cluster_means[c] for c in combination]).T, 1)
+                            diff = float(np.mean(np.abs(result[~fast_exchange] - obs[~fast_exchange])))
+                            self.all_quality_factors[ubq_site][str(no_of_considered_clusters)][', '.join([str(c) for c in combination])] = diff
+                        else:
+                            print(f"Last combination: {combination}")
                     else:
-                        print(f"Last combination: {combination}")
+                        # filter the combinations with non-aa clusters and cluster exclusions
+                        not_aa_filter_func = lambda x: not np.any([np.isnan(cluster_means[c]) for c in x])
+                        cluster_exclusions_filter_func = lambda x: not np.any([c in self.cluster_exclusions[ubq_site] for c in x])
+                        combinations = filter(not_aa_filter_func, combinations)
+                        combinations = filter(cluster_exclusions_filter_func, combinations)
+                        results = Parallel(n_jobs=mp_cpu_count())(delayed(parallel_fitness_assesment)(c, fast_exchange) for c in combinations)
 
+                        # unpack results
+                        results_dict = {k: v for k, v in results}
+                        self.all_quality_factors[ubq_site][str(no_of_considered_clusters)] = results_dict
                 with open(json_savefile, 'w') as f:
                     json.dump(self.all_quality_factors, f)
 
