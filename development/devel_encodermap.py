@@ -75,6 +75,7 @@ if not 'analysis' in globals():
 # analysis.run_per_cluster_analysis(overwrite=True)
 # analysis.get_mixed_correlation_plots(overwrite=True)
 # analysis.fitness_assessment(True)
+analysis.ubq_sites = ['k6', 'k29', 'k33']
 analysis.cluster_analysis(overwrite=True)
 # analysis.prepare_csv_files(overwrite=True)
 

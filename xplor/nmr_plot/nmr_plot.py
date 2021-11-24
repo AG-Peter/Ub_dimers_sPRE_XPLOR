@@ -273,7 +273,9 @@ def plot_confidence_intervals(axes, df, df_index, cmap='Blues', cbar=True,
             print(f"No cluster points for cluster {cluster_num} in {names}")
             return
         df_indices = np.array(df_indices)
-    if cluster_num is not None:
+    if cluster_num is not None and trajs is None:
+        df = df[df['cluster_membership'] == cluster_num]
+    if cluster_num is not None and trajs is not None:
         df = df.iloc[df_indices]
         assert len(df) == len(df_indices)
     else:
@@ -380,10 +382,16 @@ def plot_single_struct_sPRE(axes, traj, factors, ubq_site, color, positions=None
     series = series.fillna(0)
 
     out = []
-    for iter_, (ax, position, factor) in enumerate(zip(axes, positions, factors)):
+    for iter_, (ax, position, factor) in enumerate(zip(axes, positions, factors.values())):
         index = ['sPRE' in col and position in col for col in series.keys()]
         data = series[index].values
-        data *= factor
+        try:
+            data *= factor
+        except TypeError:
+            print(data)
+            print(index)
+            print(factor)
+            raise
         ax.plot(np.arange(len(data)), data, color=color)
         out.append(ax)
     return out
