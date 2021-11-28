@@ -61,6 +61,12 @@ for ubq_site in ubq_sites:
         ax.set_ylabel("Mean abs difference between exp and sim")
         plt.savefig(image_file)
 
+# %% fitness assessment
+import xplor
+if not 'analysis' in globals():
+    analysis = xplor.functions.EncodermapSPREAnalysis(['k6', 'k29', 'k33'])
+analysis.plot_fitness_assessment()
+
 
 # %% develop an analysis function
 import xplor
@@ -75,12 +81,12 @@ if not 'analysis' in globals():
 # analysis.run_per_cluster_analysis(overwrite=True)
 # analysis.get_mixed_correlation_plots(overwrite=True)
 # analysis.fitness_assessment(True)
-analysis.ubq_sites = ['k6', 'k29', 'k33']
+# analysis.ubq_sites = ['k6', 'k29', 'k33']
 analysis.cluster_analysis(overwrite=True)
 # analysis.prepare_csv_files(overwrite=True)
 
-# %%
-analysis.norm_factors
+# %% count the sims in k6 sount_id == 0
+analysis.aa_df[(analysis.aa_df['ubq_site'] == 'k6') & (analysis.aa_df['count id'] == 0)]
 
 # %%
 analysis.df_comp = 'all_frames'

@@ -2181,8 +2181,10 @@ class EncodermapSPREAnalysis:
                                                 f'{ubq_site}_cluster_{cluster_num}_rmsd_centroid.npy')
         geom_centroid_index_file = os.path.join(cluster_analysis_outdir,
                                                 f'{ubq_site}_cluster_{cluster_num}_geom_centroid.npy')
-        # rmsd_centroid_index = np.load(rmsd_centroid_index_file)
-        # geom_centroid_index = np.load(geom_centroid_index_file)
+        if os.path.isfile(rmsd_centroid_index_file):
+            rmsd_centroid_index = np.load(rmsd_centroid_index_file)
+        if os.path.isfile(geom_centroid_index_file):
+            geom_centroid_index = np.load(geom_centroid_index_file)
 
         plt.close('all)')
 
@@ -2266,6 +2268,9 @@ class EncodermapSPREAnalysis:
             text_ax.text(0.05, 0.95, text, transform=text_ax.transAxes, fontsize=14,
                     verticalalignment='top')
 
+        # add traj_name
+        if 'traj_name' not in self.aa_df:
+            self.aa_df['traj_name'] = self.aa_df['traj_file'].apply(lambda x: x.split('/')[-2])
 
         # scatter
         scatter_all_ax.scatter(*self.aa_trajs[ubq_site].lowd[::10].T, s=1, c='C0', label='aa')
@@ -2339,8 +2344,22 @@ class EncodermapSPREAnalysis:
         ax4.set_ylabel('y in a.u.')
 
         # add geom and rmsd centroid
-        scatter_cluster_ax.scatter(*self.trajs[ubq_site].lowd[rmsd_centroid_index], marker='H', c='red', label='rmsd centroid')
-        scatter_cluster_ax.scatter(*self.trajs[ubq_site].lowd[geom_centroid_index], marker='D', c='k', label='geom centroid')
+        sub_df = self.aa_df[(self.aa_df['ubq_site'] == ubq_site) & (self.aa_df['cluster_membership'] == cluster_num)]
+        rmsd_centroid = sub_df[sub_df['rmsd_centroid'] == cluster_num][['x', 'y']].values
+        geom_centroid = sub_df[sub_df['geom_centroid'] == cluster_num][['x', 'y']].values
+        # geom
+        print(list(filter(lambda x: False if any([i in x for i in ['sPRE', '15N', 'RWMD']]) else True,
+                          self.aa_df.columns)))
+        name, frame = sub_df[sub_df['geom_centroid'] == cluster_num][['traj_name', 'frame']].values.T
+        geom_centroid_index = np.where((self.aa_trajs[ubq_site].name_arr == name) & (self.aa_trajs[ubq_site].index_arr[:, 1] == frame))[0]
+        assert len(geom_centroid_index) == 1, print(geom_centroid_index)
+        geom_centroid_index = geom_centroid_index[0]
+        name, frame = sub_df[sub_df['rmsd_centroid'] == cluster_num][['traj_name', 'frame']].values.T
+        rmsd_centroid_index = np.where((self.aa_trajs[ubq_site].name_arr == name) & (self.aa_trajs[ubq_site].index_arr[:, 1] == frame))[0]
+        assert len(rmsd_centroid_index) == 1
+        rmsd_centroid_index = rmsd_centroid_index[0]
+        scatter_cluster_ax.scatter(*rmsd_centroid.T, marker='H', c='red', label='rmsd centroid')
+        scatter_cluster_ax.scatter(*geom_centroid.T, marker='D', c='k', label='geom centroid')
         scatter_cluster_ax.legend()
 
         try:
@@ -2545,7 +2564,26 @@ class EncodermapSPREAnalysis:
                 with open(json_savefile, 'w') as f:
                     json.dump(self.all_quality_factors, f)
 
-        for ubq_site in self.ubq_sites:
+    def plot_fitness_assessment(self, overwrite=False, overwrite_image=True,
+                                parallel=True):
+
+        # load the data
+        if not parallel:
+            json_savefile = os.path.join(self.analysis_dir, f'quality_factors_with_fixed_normalization.json')
+        else:
+            json_savefile = os.path.join(self.analysis_dir, f'quality_factors_with_fixed_normalization_parallel.json')
+
+        self.quality_factor_means = {ubq_site: [] for ubq_site in self.ubq_sites}
+        with open(json_savefile, 'r') as f:
+            self.all_quality_factors = json.load(f)
+
+        sites = set([k for k, v in self.all_quality_factors.items() if v != {}])
+        missing_sites = set(self.ubq_sites).difference(sites)
+
+        if missing_sites != set():
+            print(f"Missing {missing_sites} from file {json_savefile}. Maybe some analysis is still running.")
+
+        for ubq_site in sites:
             image_file = f'/home/kevin/projects/tobias_schneider/cluster_analysis_with_fixed_normalization/fitness_assessment_{ubq_site}.png'
             if not os.path.isfile(image_file) or overwrite or overwrite_image:
                 plt.close('all')
