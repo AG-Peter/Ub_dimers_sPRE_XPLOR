@@ -108,6 +108,7 @@ which makes the input data 152-dimensional.
 
 ### Encodermap dimensionality reduction
 
+Challenge:large datasets,see abstract. Check the abstract to ensure all key points are somewhere in the text. 
 We used the Encodermap's auto-encoder neural network to retrieve a dimensionally reduced representation of all 
 aforementioned simulations [@lemke2019encodermap]. The high-dimensional input data was fed into a dense, fully-connected sequential neural 
 network comprised 250, 250, 125, 2, 125, 250, and 250 neurons. We used the tensorflow python library to minimize 
@@ -208,6 +209,7 @@ $\alpha$-helices seem to overlap more precisely.\label{K6_0_render}](
 /home/kevin/projects/tobias_schneider/new_images/K6_cluster_count_id_0.png){ width=100% }
 
 ### XPLOR calculations
+Check again.sentences are odd.
 
 The NMR prediction and refinement program XPLOR NIH in version 3.3 was used to calculate the sPRE and 15N-relaxation
 time NMR observables. XPLOR's new python functionality was used to call XPLOR functions from within python. XPLOR's intended workflow follows the steps of structure loading,
