@@ -1069,6 +1069,10 @@ class EncodermapSPREAnalysis:
 
             plt.close('all')
             plt.scatter(sub_df['x'], sub_df['y'], c=sub_df['mean_abs_diff'], cmap='viridis', s=5)
+            plt.xlabel('x in a.u.')
+            plt.ylabel('y in a.u.')
+            plt.colorbar(label='mean abs difference between sim and exp')
+            plt.tight_layout()
             plt.savefig(image_name)
 
     def make_large_df(self, overwrite=False):
@@ -2034,6 +2038,14 @@ class EncodermapSPREAnalysis:
                     view, dummy_traj = gen_dummy_traj(self.aa_trajs[ubq_site], cluster_id, max_frames=max_frames, superpose=True)
                     dummy_traj.save_pdb(cluster_pdb_file)
 
+                    # stack the frames
+                    for dummy_frame_num, frame in enumerate(dummy_traj):
+                        if dummy_frame_num == 0:
+                            stacked_traj = copy.deepcopy(frame)
+                        else:
+                            stacked_traj = stacked_traj.stack(frame)
+                    stacked_traj.save_pdb(cluster_pdb_file.replace('500_frames', '500_frames_stacked'))
+
                 # geometric centroid
                 # geom_centroid_file = os.path.join(cluster_analysis_outdir, f'{ubq_site}_cluster_{cluster_num}_geom_centroid.pdb')
                 # geom_centroid_index_file = os.path.join(cluster_analysis_outdir, f'{ubq_site}_cluster_{cluster_num}_geom_centroid.npy')
@@ -2077,6 +2089,10 @@ class EncodermapSPREAnalysis:
             #     df_.to_latex(latex_file, index=False)
             #     df_.to_excel(excel_file, index=False)
             #     raise Exception("STOP")
+
+    def stack_all_clusters(self, dir_='/home/kevin/projects/tobias_schneider/cluster_analysis_with_fixed_normalization/'):
+        for file in glob.glob(dir_ + 'k*/cluster*/*500*.pdb'):
+            print(file)
 
     def plot_cluster(self, cluster_num, ubq_site, out_file=None,
                      overwrite=False, nbins=100, mhz=800, reduced=False,
@@ -2640,25 +2656,72 @@ class EncodermapSPREAnalysis:
         image_file = os.path.join(self.analysis_dir, f'best_fitting_in_cluster.png')
         plt.savefig(image_file)
 
-    def find_lowest_diffs_in_all_quality_factors(self, overwrite=False):
+    def find_lowest_diffs_in_all_quality_factors(self, overwrite=False,
+                                                 which_clusters=None):
+        if which_clusters is None:
+            which_clusters= [2, 3, 4, 5]
         result = {}
+
+        sites = set([k for k, v in self.all_quality_factors.items() if v != {}])
+        missing_sites = set(self.ubq_sites).difference(sites)
+
+        if missing_sites != set():
+            print(f"Missing {missing_sites} from file. Maybe some analysis is still running.")
+
         if overwrite or not hasattr(self, 'all_quality_factors_with_combinations'):
             self.min_cluster_combinations = {ubq_site: {} for ubq_site in self.ubq_sites}
-            for i, ubq_site in enumerate(self.ubq_sites):
-                for j, no_of_considered_clusters in enumerate(self.all_quality_factors[ubq_site].keys()):
-                    min_ = float('inf')
-                    for k, (combination, value) in enumerate(self.all_quality_factors[ubq_site][no_of_considered_clusters].items()):
-                        if value < min_:
-                            min_ = value
-                            min_combination = set(ast.literal_eval(combination))
-                    self.min_cluster_combinations[ubq_site][no_of_considered_clusters] = min_combination
-                values = list(self.min_cluster_combinations[ubq_site].values())
-                intersection = values[0].intersection(*values[1:])
-                result[ubq_site] = intersection
+            for i, ubq_site in enumerate(sites):
+                if which_clusters is None: # global minimum
+                    for j, no_of_considered_clusters in enumerate(self.all_quality_factors[ubq_site].keys()):
+                        min_ = float('inf')
+                        for k, (combination, value) in enumerate(self.all_quality_factors[ubq_site][no_of_considered_clusters].items()):
+                            if value < min_:
+                                min_ = value
+                                min_combination = set(ast.literal_eval(combination))
+                        self.min_cluster_combinations[ubq_site][no_of_considered_clusters] = min_combination
+                    values = list(self.min_cluster_combinations[ubq_site].values())
+                    intersection = values[0].intersection(*values[1:])
+                    intersection = set(list(map(self.cluster_id_from_count_id(ubq_site), intersection)))
+                    result[ubq_site] = intersection
+                else:
+                    which_clusters = list(map(str, which_clusters))
+                    for j, no_of_considered_clusters in enumerate(which_clusters):
+                        min_ = float('inf')
+                        for k, (combination, value) in enumerate(
+                                self.all_quality_factors[ubq_site][no_of_considered_clusters].items()):
+                            if value < min_:
+                                min_ = value
+                                min_combination = set(ast.literal_eval(combination))
+                        intersection = set(list(map(self.cluster_id_from_count_id(ubq_site), min_combination)))
+                        result[ubq_site + '_' + str(no_of_considered_clusters)] = intersection
+
         pprint(result)
 
-        for ubq_site, (clu1, clu2) in result:
-            pass
+        # for ubq_site, (clu1, clu2) in result.items():
+        #     pass
+
+
+    def cluster_id_from_count_id(self, ubq_site):
+        if not hasattr(self, 'cluster_df'):
+            df_file = '/home/kevin/projects/tobias_schneider/new_images/clusters.h5'
+            with pd.HDFStore(df_file) as store:
+                cluster_df, metadata = h5load(store)
+
+            dfs = []
+            print(cluster_df.keys())
+
+            for ubq_site in np.unique(cluster_df['ubq site']):
+                sub_df = cluster_df[cluster_df['ubq site'] == ubq_site]
+                sub_df = sub_df.sort_values('N frames', ascending=False)
+                sub_df['count id'] = np.arange(len(sub_df))
+                dfs.append(sub_df)
+            self.cluster_df = pd.concat(dfs)
+
+        def closure(cluster_id):
+            test = self.cluster_df[(self.cluster_df['ubq site'] == ubq_site) & (self.cluster_df['cluster id'] == cluster_id)]['count id'].values
+            assert len(test) == 1
+            return test[0]
+        return closure
 
     def plot_cluster_rmsds(self):
         for i, ubq_site in enumerate(self.ubq_sites):

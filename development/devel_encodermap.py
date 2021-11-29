@@ -66,6 +66,7 @@ import xplor
 if not 'analysis' in globals():
     analysis = xplor.functions.EncodermapSPREAnalysis(['k6', 'k29', 'k33'])
 analysis.plot_fitness_assessment()
+analysis.find_lowest_diffs_in_all_quality_factors(overwrite=True, which_clusters=[2, 3, 4, 5])
 
 
 # %% develop an analysis function
@@ -83,7 +84,9 @@ if not 'analysis' in globals():
 # analysis.fitness_assessment(True)
 # analysis.ubq_sites = ['k6', 'k29', 'k33']
 analysis.cluster_analysis(overwrite=True)
+# analysis.stack_all_clusters()
 # analysis.prepare_csv_files(overwrite=True)
+# analysis.analyze_mean_abs_diff_all()
 
 # %% count the sims in k6 sount_id == 0
 analysis.aa_df[(analysis.aa_df['ubq_site'] == 'k6') & (analysis.aa_df['count id'] == 0)]

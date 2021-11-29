@@ -297,3 +297,72 @@ $F_{ubq, pos}$, which were used to normalize all simulated sPRE values were obta
 $$
 F_{ubq, pos} = \frac{\sum_i^{10} f_{i, ubq, pos}}{10}
 $$
+
+#### Metric of comparison: mean abs difference
+
+As a metric of difference between one set of sPRE-values and another we chose the mean absolute difference, which can in general be obtained as:
+
+$$
+MAD = \frac{\sum_i^n \lVert  x_i - \hat x_i \rVert }{n}
+$$
+
+We exclusively used the $MAD$ to compare experimental and simulated sPRE values, so the equation can be re-written as:
+
+$$
+MAD = \frac{\sum_i^{152} \lVert  x_{exp, i} - x_{sim, i} \rVert }{152}
+$$
+
+With this measure, we could compare any simulation frame from the atomistic simulations to the experimental values (Figure \ref{encodermap_spre}).
+
+![The low-dimensional Encodermap projection (x and y values) colored by the mean abs difference between a conformation from MD simulations and the experimental sPRE values.
+Certain regions with lower and higher mean abs difference can clearly be destinguished.\label{encodermap_spre}](
+/home/kevin/projects/tobias_schneider/test_sPRE_values/k6_scatter.png){ width=100% }
+
+### Identification of clusters
+
+As a final step we conducted a linear combination to identify only a few clusters per ubiquitination site that should be able to represent the overall conformation of the di-ubiquitin proteins in a dynamic system.
+Starting from the experimental sPRE-values ($sPRE_{exp}$), we set up this system of equations:
+
+$$
+\begin{bmatrix} sPRE_{exp, MET1, prox} \\ SPRE_{exp, GLN2, prox} \\ \vdots \\ sPRE_{exp, GLY76, dist} \end{bmatrix} = x_1 \cdot \begin{bmatrix} sPRE_{clu_1, MET1, prox} \\ SPRE_{clu_1, GLN2, prox} \\ \vdots \\ sPRE_{clu_1, GLY76, dist} \end{bmatrix} + \dots +
+x_n \cdot \begin{bmatrix} sPRE_{clu_n, MET1, prox} \\ SPRE_{clu_n, GLN2, prox} \\ \vdots \\ sPRE_{clu_n, GLY76, dist} \end{bmatrix}
+$$
+
+Here, the sPRE-values are represented as column-vectors with proximal and distal values unified. The residues identified by the New Mexico experiment to exchange fast have been excluded from these considerations, which makes the column vectors shorter than 152 entries.
+For every residue there is one experimental value ($sPRE_{exp, MET1, prox}$) and multiple cluster-values. For every cluster the mean sPRE value of all conformations assigned to that cluster was taken, so that:
+
+$$
+sPRE_{clu_1, MET1, prox} = \frac{\sum_n^i sPRE_{clu_1, MET1, prox, i}}{n_{\text{points in cluster}}}
+$$
+
+Summarising the column vectors this equation can be written as.
+
+$$
+\boldsymbol{sPRE_{exp}} = x_1 \cdot \boldsymbol{sPRE_{clu_1}} + x_2 \cdot \boldsymbol{sPRE_{clu_2}} + \dots x_n \cdot \boldsymbol{sPRE_{clu_n}}
+$$
+
+The objective function, that was minimized can be written as:
+
+$$
+f(\boldsymbol{x}) = \lVert  \sum\left(  \boldsymbol{x} \times \boldsymbol{sPRE_{sim}} \right) - \boldsymbol{sPRE_{exp}} \rVert
+$$
+
+Here, $\boldsymbol{x}$ is a vector of coefficients and $\boldsymbol{sPRE_{sim}}$ is a matrix of the simulated sPRE values of the $n$ clusters.
+The minimization was carried out with boundary conditions, so that any $x_i \in \mathbb{R}_{0 \leq x \leq 1}$ and $\sum^i_n x_i = 1$.
+
+$$
+\min_{\boldsymbol{x} \in \mathbb{R}_{\geq 0}^n} f(\boldsymbol{x})
+$$
+
+The results of this linear combination can be taken from Figure \ref{K33_table}.
+
+![Solving the linear combination on the example of K33-linked di-ubiquitin. The cluster id follows the number of points inside this cluster. From this number, the \label{K33_table}](
+/home/kevin/projects/tobias_schneider/cluster_analysis_with_fixed_normalization/cluster_analysis_table_k33_reduced_cropped.pdf){ width=100% }
+
+![Same results fro K29.\label{K29_table}](
+/home/kevin/projects/tobias_schneider/cluster_analysis_with_fixed_normalization/cluster_analysis_table_k29_reduced_cropped.pdf){ width=100% }
+
+![Saem results for K6.\label{K6_table}](
+/home/kevin/projects/tobias_schneider/cluster_analysis_with_fixed_normalization/cluster_analysis_table_k6_reduced_cropped.pdf){ width=100% }
+
+
