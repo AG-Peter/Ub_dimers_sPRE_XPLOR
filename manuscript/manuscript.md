@@ -255,7 +255,7 @@ IMAGE
 
 The code developed for this publication will be made publicly available at: https://github.com/kevinsawade/xplor_functions
 
-#### Normalization of XPLOR values
+#### Normalization of sPRE values
 
 The sPRE values from the XPLOR runs needed to be normalized before they could be quantitatively compared to experimental
 findings. We adjusted the normalization method described by Gong et al. for our system as follows [@gong2018theory]:
@@ -484,12 +484,15 @@ Cluster 0 and 1 clearly assume distinct conformations covering specific regions 
 
 ## Conclusion
 
-In this work we presented a new method of combining experimental and simulated structural data. By combining NMR spectroscopy with CG and atomistic
-simulations we were able to come to a synergistic interplay between these methods, neglecting the short-comings of these methods and reaching a high degree of refinement.
-Atomisitc MD simulations take time to compute and might be biased. Using CG simulations we extended the available dataset and layed ground for enemble-wide assumptions, such as
-the assessment of stable states and the relative frequency of these states. Using the solvent paramagnetic relaxation techniques, we timespan of the available data even further.
-Developing new algorihtms (normalization) and techniques (parallel XPLOR NIH with many simulation frames) we reached a level of refinement, where both NMR and MD data predict the same structures for the three di-ubiquitin
-proteins in question.
+In this work, we presented a new method of combining experimental NMR spectroscopy and simulated CG and atomistic
+structural data. We successfully applied these methods on three di-ubiquitin proteins and were able to reveal a
+synergistic interplay between tem, neglecting the short-comings of each individual method and reach a high degree
+of refinement. As atomisitc MD simulations take time to compute and might be biased, we complemented these data
+with less comutationally demanding CG simulations and layed ground for ensemble-wide evaluations, such as
+the assessment of stable states and the relative frequency of these states. Using solvent paramagnetic
+relaxation techniques, we extended the timespan of the available data even further. We developed new normalization
+algorihtms and parallelization techniques for XPLOR NIH to reach a level of refinement where both XPLOR normalization
+and ensemble weights predict identical protein structures f the exhaustive MD sampling.
 
 ## Appendix
 

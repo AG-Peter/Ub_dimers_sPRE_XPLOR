@@ -80,9 +80,9 @@ if not 'analysis' in globals():
 # analysis.fix_broken_pdbs()
 # analysis.add_centroids_to_df(testing=False)
 # analysis.check_normalization()
-analysis.run_per_cluster_analysis(overwrite_final_correlation=True,
-                                  overwrite_final_combination=True)
-# analysis.get_mixed_correlation_plots(overwrite=True)
+# analysis.run_per_cluster_analysis(overwrite_final_correlation=True,
+#                                   overwrite_final_combination=True)
+analysis.get_mixed_correlation_plots(overwrite=True, exclude_0_and_nan=False)
 # analysis.fitness_assessment(True)
 # analysis.ubq_sites = ['k6', 'k29', 'k33']
 # analysis.cluster_analysis(overwrite=True,
