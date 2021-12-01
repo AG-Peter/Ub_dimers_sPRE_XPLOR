@@ -65,8 +65,9 @@ for ubq_site in ubq_sites:
 import xplor
 if not 'analysis' in globals():
     analysis = xplor.functions.EncodermapSPREAnalysis(['k6', 'k29', 'k33'])
-analysis.plot_fitness_assessment()
-analysis.find_lowest_diffs_in_all_quality_factors(overwrite=True, which_clusters=[2, 3, 4, 5])
+    analysis.plot_fitness_assessment()
+analysis.find_lowest_diffs_in_all_quality_factors(overwrite=True, which_clusters=None)
+analysis.get_values_of_combinations()
 
 
 # %% develop an analysis function
@@ -79,11 +80,15 @@ if not 'analysis' in globals():
 # analysis.fix_broken_pdbs()
 # analysis.add_centroids_to_df(testing=False)
 # analysis.check_normalization()
-# analysis.run_per_cluster_analysis(overwrite=True)
+analysis.run_per_cluster_analysis(overwrite_final_correlation=True,
+                                  overwrite_final_combination=True)
 # analysis.get_mixed_correlation_plots(overwrite=True)
 # analysis.fitness_assessment(True)
 # analysis.ubq_sites = ['k6', 'k29', 'k33']
-analysis.cluster_analysis(overwrite=True)
+# analysis.cluster_analysis(overwrite=True,
+#                           save_pdb_only_needed_count_ids={'k6': [0, 1, 2, 11],
+#                                                           'k29': [0, 11, 12],
+#                                                           'k33': [0, 1, 9, 19]})
 # analysis.stack_all_clusters()
 # analysis.prepare_csv_files(overwrite=True)
 # analysis.analyze_mean_abs_diff_all()
@@ -92,8 +97,9 @@ analysis.cluster_analysis(overwrite=True)
 analysis.aa_df[(analysis.aa_df['ubq_site'] == 'k6') & (analysis.aa_df['count id'] == 0)]
 
 # %%
-analysis.df_comp = 'all_frames'
-print(analysis.centers_prox)
+analysis.write_clusters(f'/home/kevin/projects/tobias_schneider/cluster_analysis_with_fixed_normalization',
+                        {'k6': [0, 1, 2, 11], 'k29': [0, 11, 12], 'k33': [19]}, which='count_id',
+                        pdb=None, max_frames=200)
 
 
 # %%
