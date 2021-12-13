@@ -52,6 +52,20 @@ __all__ = ['EncodermapSPREAnalysis', 'h5load']
 
 
 ################################################################################
+# Utils
+################################################################################
+
+
+class SimExpDifference(Exception):
+    def __init__(self, data_name, residue, sim, exp):
+        msg = (f"For the datapoint {data_name} at residue {residue}, "
+               f"the values do not match. The simulation values"
+               f"predicted {sim}, but experimental vale is {exp}.")
+        super().__init__(msg)
+
+
+
+################################################################################
 # Functions
 ################################################################################
 
@@ -243,6 +257,42 @@ def appendLonLatTraj(xyz):
     new[:, :, 5] -= 90.0
     new[:, :, 5] *= -1
     return new
+
+
+def correlation_and_mae_with_and_without_norm(vals_norm, vals_non_norm, exp_value, fast_exchangers,
+                                              ubq_site, exclude_0_and_nan_and_fast_exchangers):
+    from scipy.stats import pearsonr
+    vals_norm = np.asarray(vals_norm)
+    if vals_non_norm is not None:
+        vals_non_norm = np.asarray(vals_non_norm)
+    x1 = copy.deepcopy(exp_value)
+    if vals_non_norm is not None:
+        x2 = copy.deepcopy(exp_value)
+    y1 = vals_norm
+    if vals_non_norm is not None:
+        y2 = vals_non_norm
+    if exclude_0_and_nan_and_fast_exchangers:
+        fast_exchange = fast_exchangers[ubq_site].values
+        mask1 = np.logical_and((~np.isnan(y1)) & (~np.isnan(x1)) & (~fast_exchange),
+                               (y1 != 0) & (x1 != 0) & (~fast_exchange))
+        if vals_non_norm is not None:
+            mask2 = np.logical_and((~np.isnan(y2)) & (~np.isnan(x2)) & (~fast_exchange),
+                                   (y2 != 0) & (x2 != 0) & (~fast_exchange))
+        x1 = x1[mask1]
+        if vals_non_norm is not None:
+            x2 = x2[mask2]
+        y1 = y1[mask1]
+        if vals_non_norm is not None:
+            y2 = y2[mask2]
+    corr1, _ = pearsonr(x1, y1)
+    mae1 = np.mean(np.abs(x1 - y1))
+    if vals_non_norm is not None:
+        corr2, _ = pearsonr(x2, y2)
+        mae2 = np.mean(np.abs(x2 - y2))
+    else:
+        corr2 = None
+        mae2 = None
+    return corr1, mae1, corr2, mae2
 
 
 def center_ref_and_load(overwrite: bool = False) -> Tuple[mdtraj.Trajectory, np.ndarray, np.ndarray]:
@@ -512,7 +562,7 @@ class EncodermapSPREAnalysis:
 
     @property
     def fast_exchangers(self):
-        print("Hard-coded fast_exchangers getter to return k6, k29, and k33.")
+        warnings.warn("Hard-coded fast_exchangers getter to return k6, k29, and k33.")
         return get_fast_exchangers(['k6', 'k29', 'k33'])
 
     @property
@@ -765,10 +815,15 @@ class EncodermapSPREAnalysis:
 
             plt.savefig(image_name)
 
-    def prepare_csv_files(self, overwrite=False):
+    def prepare_csv_files(self, exclude_0_and_nan_and_fast_exchangers=True,
+                          check_zeros_and_empty=True):
+        from scipy.stats import pearsonr
         with pd.HDFStore(
-                '/home/kevin/projects/tobias_schneider/new_images/clusters_with_and_without_coeff.h5') as store:
+                '/home/kevin/projects/tobias_schneider/new_images/clusters.h5') as store:
             df, metadata = h5load(store)
+            # old line was
+            # '/home/kevin/projects/tobias_schneider/new_images/clusters_with_and_without_coeff.h5') as store:
+            # changed due to fixing normalization issues
 
         for ubq_count, ubq_site in enumerate(self.ubq_sites):
             csv_file = f'/home/kevin/projects/tobias_schneider/cluster_analysis_with_fixed_normalization/per_residue_values_and_combinations_{ubq_site}.csv'
@@ -789,11 +844,15 @@ class EncodermapSPREAnalysis:
 
             out_df = {'cluster id (count)': [], 'coefficient': []}
 
-            columns_norm = [i for i in self.df_comp_norm.columns if 'sPRE' in i and 'norm' in i]
+            # define exp_value before everything starts
+            exp_value = self.df_obs[ubq_site][self.df_obs[ubq_site].index.str.contains('sPRE')].values
+
+            columns_norm = [i for i in self.aa_df.columns if 'sPRE' in i and 'norm' in i]
             test_index = columns_norm[0]
             # columns_norm = [f'median (without coeff) {i}' for i in columns_norm_]
-            columns_non_norm = [i for i in self.df_comp_norm.columns if 'sPRE' in i and 'norm' not in i]
+            columns_non_norm = [i for i in self.aa_df.columns if 'sPRE' in i and 'norm' not in i]
             # columns_non_norm = [f'median (without coeff) {i}' for i in columns_non_norm_]
+            out_df.update({i: [] for i in ['pearson correlation (norm)', 'MAE (norm)', 'pearson correlation', 'MAE']})
             out_df.update({i: [] for i in columns_norm})
             out_df.update({i: [] for i in columns_non_norm})
 
@@ -805,10 +864,20 @@ class EncodermapSPREAnalysis:
                     out_df[col_norm].append(val_norm)
                     out_df[col_non_norm].append(val_non_norm)
                     if resid < 76:
-                        factor = self.norm_factors[ubq_site][0]
+                        factor = self.norm_factors[ubq_site]['dist']
                     else:
-                        factor = self.norm_factors[ubq_site][1]
-                    print(val_norm / val_non_norm, factor)
+                        factor = self.norm_factors[ubq_site]['prox']
+                corr1, mae1, corr2, mae2 = correlation_and_mae_with_and_without_norm(cluster_means_norm[row['cluster id']],
+                                                                                     cluster_mean_not_norm[row['cluster id']],
+                                                                                     exp_value,
+                                                                                     self.fast_exchangers,
+                                                                                     ubq_site,
+                                                                                     exclude_0_and_nan_and_fast_exchangers)
+                out_df['pearson correlation (norm)'].append(corr1)
+                out_df['MAE (norm)'].append(mae1)
+                out_df['pearson correlation'].append(corr2)
+                out_df['MAE'].append(mae2)
+                # print(val_norm / val_non_norm, factor)
 
             # get full combination
             final_combination = np.sum(linear_combination * cluster_means_norm.T, 1)
@@ -819,9 +888,19 @@ class EncodermapSPREAnalysis:
             for col_non_norm in columns_non_norm:
                 out_df[col_non_norm].append(np.nan)
             # print(len(out_df[test_index]))
+            corr1, mae1, corr2, mae2 = correlation_and_mae_with_and_without_norm(final_combination,
+                                                                                 None,
+                                                                                 exp_value,
+                                                                                 self.fast_exchangers,
+                                                                                 ubq_site,
+                                                                                 exclude_0_and_nan_and_fast_exchangers)
+            out_df['pearson correlation (norm)'].append(corr1)
+            out_df['MAE (norm)'].append(mae1)
+            out_df['pearson correlation'].append(corr2)
+            out_df['MAE'].append(mae2)
 
             # get median of all
-            _ = self.df_comp_norm[self.df_comp_norm['ubq_site'] == ubq_site]
+            _ = self.aa_df[self.aa_df['ubq_site'] == ubq_site]
             median_all_norm = np.median(_[columns_norm], 0)
             median_all_non_norm = np.median(_[columns_non_norm], 0)
             out_df['cluster id (count)'].append('all median')
@@ -835,17 +914,27 @@ class EncodermapSPREAnalysis:
                 #     print(iter_, col_non_norm, val_non_norm)
                 out_df[col_non_norm].append(val_non_norm)
             # print(len(out_df[test_index]))
+            corr1, mae1, corr2, mae2 = correlation_and_mae_with_and_without_norm(median_all_norm,
+                                                                                 median_all_non_norm,
+                                                                                 exp_value,
+                                                                                 self.fast_exchangers,
+                                                                                 ubq_site,
+                                                                                 exclude_0_and_nan_and_fast_exchangers)
+            out_df['pearson correlation (norm)'].append(corr1)
+            out_df['MAE (norm)'].append(mae1)
+            out_df['pearson correlation'].append(corr2)
+            out_df['MAE'].append(mae2)
 
             # get limited combination
             if ubq_site == 'k6':
-                clusters = [5, 9]
-                clusters_str = 'combination of clusters 5 and 9'
+                clusters = [0, 1, 11]
+                clusters_str = 'combination of clusters 0, 1, and 11'
             if ubq_site == 'k29':
-                clusters = [0, 12]
-                clusters_str = 'combination of clusters 0 and 12'
+                clusters = [0, 11]
+                clusters_str = 'combination of clusters 0 and 11'
             if ubq_site == 'k33':
-                clusters = [20]
-                clusters_str = 'cluster 20 with coefficient'
+                clusters = [0, 1, 19]
+                clusters_str = 'combination of clusters 0, 1, and 19'
 
             # get the cluster ids
             cluster_ids = []
@@ -865,7 +954,63 @@ class EncodermapSPREAnalysis:
                 out_df[col_non_norm].append(np.nan)
             # print(len(out_df[test_index]))
 
+            corr1, mae1, corr2, mae2 = correlation_and_mae_with_and_without_norm(cluster_combination,
+                                                                                 None,
+                                                                                 exp_value,
+                                                                                 self.fast_exchangers,
+                                                                                 ubq_site,
+                                                                                 exclude_0_and_nan_and_fast_exchangers)
+            out_df['pearson correlation (norm)'].append(corr1)
+            out_df['MAE (norm)'].append(mae1)
+            out_df['pearson correlation'].append(corr2)
+            out_df['MAE'].append(mae2)
             out_df = pd.DataFrame(out_df)
+
+            # change order of columns
+            _, _, resnames = center_ref_and_load()
+            new_column_order = []
+            for norm in ['normalized', '']:
+                for pos in ['proximal', 'distal']:
+                    for resname in resnames:
+                        if norm:
+                            colname = f'{norm} {pos} {resname} sPRE'
+                        else:
+                            colname = f'{pos} {resname} sPRE'
+                        new_column_order.append(colname)
+            left_col_names = ['cluster id (count)', 'coefficient', 'pearson correlation (norm)', 'MAE (norm)', 'pearson correlation', 'MAE']
+            out_df = out_df[left_col_names + new_column_order]
+
+            for col_name, exp in self.df_obs[ubq_site].iteritems():
+                # normalized
+                series = out_df['normalized ' + col_name]
+                for data_name, sim in series.iteritems():
+                    row_name = out_df.iloc[data_name]['cluster id (count)']
+                    if exp == 0 and (sim != 0 or ~np.isnan(sim)):
+                        raise SimExpDifference(data_name, 'normalized ' + col_name, sim, exp)
+                    if exp != 0 and (sim == 0 or np.isnan(sim)):
+                        raise SimExpDifference(data_name, 'normalized ' + col_name, sim, exp)
+
+                # non-normalized
+                series = out_df[col_name]
+                for data_name, sim in series.iteritems():
+                    row_name = out_df.iloc[data_name]['cluster id (count)']
+                    if exp == 0 and (sim != 0 or ~np.isnan(sim)):
+                        raise SimExpDifference(data_name, 'non-normalized ' + col_name, sim, exp)
+                    if exp != 0 and (sim == 0 or np.isnan(sim)):
+                        raise SimExpDifference(data_name, 'non-normalized ' + col_name, sim, exp)
+
+                break
+
+            raise Exception("STOP")
+
+            # check empty rows
+            if check_zeros_and_empty:
+                val_cols = [c for c in out_df.columns if 'sPRE' in c]
+                for i, row in out_df.iterrows():
+                    print(val_cols)
+                    print(row)
+                    raise Exception("STOP")
+
             out_df[columns_norm + columns_non_norm] = out_df[columns_norm + columns_non_norm].replace(0, np.nan)
             out_df.to_csv(csv_file)
             out_df.to_excel(csv_file.replace('.csv', '.xlsx'))

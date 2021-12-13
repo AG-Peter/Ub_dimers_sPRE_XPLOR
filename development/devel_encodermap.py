@@ -82,7 +82,7 @@ if not 'analysis' in globals():
 # analysis.check_normalization()
 # analysis.run_per_cluster_analysis(overwrite_final_correlation=True,
 #                                   overwrite_final_combination=True)
-analysis.get_mixed_correlation_plots(overwrite=True, exclude_0_and_nan=False)
+# analysis.get_mixed_correlation_plots(overwrite=True, exclude_0_and_nan=False)
 # analysis.fitness_assessment(True)
 # analysis.ubq_sites = ['k6', 'k29', 'k33']
 # analysis.cluster_analysis(overwrite=True,
@@ -90,7 +90,7 @@ analysis.get_mixed_correlation_plots(overwrite=True, exclude_0_and_nan=False)
 #                                                           'k29': [0, 11, 12],
 #                                                           'k33': [0, 1, 9, 19]})
 # analysis.stack_all_clusters()
-# analysis.prepare_csv_files(overwrite=True)
+analysis.prepare_csv_files()
 # analysis.analyze_mean_abs_diff_all()
 
 # %% count the sims in k6 sount_id == 0
