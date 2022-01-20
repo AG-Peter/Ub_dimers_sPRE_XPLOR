@@ -575,6 +575,7 @@ class EncodermapSPREAnalysis:
 
     @property
     def large_df_file(self):
+        raise Exception("This needs to use the new new_psol_all values.")
         return '/mnt/data/kevin/xplor_analysis_files/lowd_and_xplor_df.csv'
 
     @property
@@ -587,6 +588,9 @@ class EncodermapSPREAnalysis:
 
     @df_comp.setter
     def df_comp(self, csv):
+        if csv != 'new_psol':
+            raise Exception(f"It is highly advised to choose the files in new_psol_all as the underlying df. You chose {csv}.")
+
         if csv == 'conect':
             raise Exception("Need to reorder prox and dist")
             files = glob.glob(
@@ -614,6 +618,13 @@ class EncodermapSPREAnalysis:
             csv = '/home/kevin/projects/tobias_schneider/values_from_every_frame/from_package/2021-07-23T16:49:44+02:00_df_no_conect.csv'
             time = get_iso_time(csv)
             assert time > datetime.datetime.strptime("2021-03-11T00:00:00+0100", "%Y-%m-%dT%H:%M:%S%z")
+        elif csv == 'new_psol':
+            files = glob.glob(
+                '/home/kevin/projects/tobias_schneider/values_from_every_frame/new_psol_all/*.csv')
+            sorted_files = sorted(files, key=get_iso_time)
+            csv = sorted_files[-1]
+            time = get_iso_time(csv)
+
         df_comp = pd.read_csv(csv, index_col=0)
         if not 'ubq_site' in df_comp.keys():
             df_comp['ubq_site'] = df_comp['traj_file'].map(get_ubq_site)
@@ -645,7 +656,7 @@ class EncodermapSPREAnalysis:
         if type_of_corr is None:
             type_of_corr = ['median_all', 'cluster_mean', 'cluster_mean', 'cluster_mean', 'cluster_combination', 'all_combination']
         for ubq_site_counting, ubq_site in enumerate(self.ubq_sites):
-            image_name = f"/home/kevin/projects/tobias_schneider/cluster_analysis_with_fixed_normalization/{ubq_site}_correlation_regression.png"
+            image_name = f"/home/kevin/projects/tobias_schneider/cluster_analysis_with_new_psol/{ubq_site}_correlation_regression.png"
             if os.path.isfile and not overwrite:
                 print(f"File at {image_name} already exists.")
                 continue
@@ -816,7 +827,7 @@ class EncodermapSPREAnalysis:
             plt.savefig(image_name)
 
     def prepare_csv_files(self, exclude_0_and_nan_and_fast_exchangers=True,
-                          check_zeros_and_empty=True):
+                          check_empty_and_zero_columns=True):
         from scipy.stats import pearsonr
         with pd.HDFStore(
                 '/home/kevin/projects/tobias_schneider/new_images/clusters.h5') as store:
@@ -826,7 +837,7 @@ class EncodermapSPREAnalysis:
             # changed due to fixing normalization issues
 
         for ubq_count, ubq_site in enumerate(self.ubq_sites):
-            csv_file = f'/home/kevin/projects/tobias_schneider/cluster_analysis_with_fixed_normalization/per_residue_values_and_combinations_{ubq_site}.csv'
+            csv_file = f'/home/kevin/projects/tobias_schneider/cluster_analysis_with_new_psol/per_residue_values_and_combinations_{ubq_site}.csv'
             linear_combination, cluster_means_norm, cluster_mean_not_norm = make_linear_combination_from_clusters(None,
                                                                                       self.aa_df,
                                                                                       self.df_obs,
@@ -966,6 +977,7 @@ class EncodermapSPREAnalysis:
             out_df['MAE'].append(mae2)
             out_df = pd.DataFrame(out_df)
 
+            # check empty and zero columns
             # change order of columns
             _, _, resnames = center_ref_and_load()
             new_column_order = []
@@ -980,40 +992,81 @@ class EncodermapSPREAnalysis:
             left_col_names = ['cluster id (count)', 'coefficient', 'pearson correlation (norm)', 'MAE (norm)', 'pearson correlation', 'MAE']
             out_df = out_df[left_col_names + new_column_order]
 
-            for col_name, exp in self.df_obs[ubq_site].iteritems():
-                # normalized
-                series = out_df['normalized ' + col_name]
-                for data_name, sim in series.iteritems():
-                    row_name = out_df.iloc[data_name]['cluster id (count)']
-                    if exp == 0 and (sim != 0 or ~np.isnan(sim)):
-                        raise SimExpDifference(data_name, 'normalized ' + col_name, sim, exp)
-                    if exp != 0 and (sim == 0 or np.isnan(sim)):
-                        raise SimExpDifference(data_name, 'normalized ' + col_name, sim, exp)
+            # add the experimental values
+            exp = self.df_obs[ubq_site].to_frame().T
+            exp = exp[[c for c in exp.columns if 'sPRE' in c]]
+            exp.index = [-1]
+            exp[['normalized ' + c for c in exp.columns]] = exp.values
+            exp[['cluster id (count)', 'coefficient', 'pearson correlation (norm)', 'MAE (norm)', 'pearson correlation', 'MAE']] = ['experimental values', 0, 0, 0, 0, 0]
 
-                # non-normalized
-                series = out_df[col_name]
-                for data_name, sim in series.iteritems():
-                    row_name = out_df.iloc[data_name]['cluster id (count)']
-                    if exp == 0 and (sim != 0 or ~np.isnan(sim)):
-                        raise SimExpDifference(data_name, 'non-normalized ' + col_name, sim, exp)
-                    if exp != 0 and (sim == 0 or np.isnan(sim)):
-                        raise SimExpDifference(data_name, 'non-normalized ' + col_name, sim, exp)
+            if check_empty_and_zero_columns:
+                for col_name, exp in self.df_obs[ubq_site].iteritems():
+                    # normalized
+                    series = out_df['normalized ' + col_name]
+                    for data_name, sim in series.iteritems():
+                        row_name = out_df.iloc[data_name]['cluster id (count)']
+                        if exp == 0 and np.nan_to_num(sim) != 0:
+                            raise SimExpDifference(row_name, f'{ubq_site} normalized ' + col_name, sim, exp)
+                        if exp != 0 and np.nan_to_num(sim) == 0 and 'combination' not in str(row_name):
+                            raise SimExpDifference(row_name, f'{ubq_site} normalized ' + col_name, sim, exp)
 
-                break
-
-            raise Exception("STOP")
-
-            # check empty rows
-            if check_zeros_and_empty:
-                val_cols = [c for c in out_df.columns if 'sPRE' in c]
-                for i, row in out_df.iterrows():
-                    print(val_cols)
-                    print(row)
-                    raise Exception("STOP")
+                    # non-normalized
+                    series = out_df[col_name]
+                    for data_name, sim in series.iteritems():
+                        row_name = out_df.iloc[data_name]['cluster id (count)']
+                        if exp == 0 and np.nan_to_num(sim) != 0:
+                            raise SimExpDifference(row_name, f'{ubq_site} non-normalized ' + col_name, sim, exp)
+                        if exp != 0 and np.nan_to_num(sim) == 0 and 'combination' not in str(row_name):
+                            raise SimExpDifference(row_name, f'{ubq_site} non-normalized ' + col_name, sim, exp)
 
             out_df[columns_norm + columns_non_norm] = out_df[columns_norm + columns_non_norm].replace(0, np.nan)
+            out_df = pd.concat([out_df, exp])
+            out_df.sort_index(inplace=True)
             out_df.to_csv(csv_file)
             out_df.to_excel(csv_file.replace('.csv', '.xlsx'))
+
+    def compare_exp_sim(self, ubq_site, row):
+        exp = self.df_obs[ubq_site][row]
+        sim = np.unique(self.aa_df[self.aa_df['ubq_site'] == ubq_site][row].values)
+        if len(sim) == 1:
+            sim = sim[0]
+        if sim == 0 and exp != 0:
+            cols = list(filter(lambda x: all([i.islower() for i in x]) if ' ' in x else True,
+                               self.aa_df[self.aa_df['ubq_site'] == ubq_site].columns.tolist()))
+            traj_file, top_file, frame = self.aa_df[self.aa_df['ubq_site'] == ubq_site].iloc[0][['traj_file', 'top_file', 'frame']]
+            traj = md.load_frame(traj_file, index=frame, top=top_file)
+
+            with Capturing() as output:
+                top_aa = CustomGromacsTopFile(
+                    f'/home/andrejb/Software/custom_tools/topology_builder/topologies/gromos54a7-isop/diUBQ_{ubq_site.upper()}/system.top',
+                    includeDir='/home/andrejb/Software/gmx_forcefields')
+            traj.top = md.Topology.from_openmm(top_aa.topology)
+
+            isopeptide_indices = []
+            isopeptide_bonds = []
+            for r in traj.top.residues:
+                if r.name == 'GLQ':
+                    r.name = 'GLY'
+                    for a in r.atoms:
+                        if a.name == 'C':
+                            isopeptide_indices.append(a.index + 1)
+                            isopeptide_bonds.append(f"{a.residue.name} {a.residue.resSeq} {a.name}")
+                if r.name == 'LYQ':
+                    r.name = 'LYS'
+                    for a in r.atoms:
+                        if a.name == 'CQ': a.name = 'CE'
+                        if a.name == 'NQ':
+                            a.name = 'NZ'
+                            isopeptide_indices.append(a.index + 1)
+                            isopeptide_bonds.append(f"{a.residue.name} {a.residue.resSeq} {a.name}")
+                        if a.name == 'HQ': a.name = 'HZ1'
+
+            series = get_series_from_mdtraj(traj, traj_file, top_file, 0, fix_isopeptides=False, print_raw_out=True,
+                                            test_single_resiude=row)
+            print(series[row])
+            raise Exception("STOP")
+        print(exp)
+        print(sim)
 
     def add_centroids_to_df(self, overwrite=False, overwrite_rows=False, testing=False):
         if 'rmsd_centroid' in self.aa_df and 'geom_centroid' in self.aa_df and not overwrite:
@@ -1180,7 +1233,7 @@ class EncodermapSPREAnalysis:
                 if count_id == -1:
                     continue
                 # df = sub_df[sub_df['count_id'] == count_id]
-                pdb_file = f'/home/kevin/projects/tobias_schneider/cluster_analysis_with_fixed_normalization/{ubq_site}/cluster_{count_id}/cluster.pdb'
+                pdb_file = f'/home/kevin/projects/tobias_schneider/cluster_analysis_with_new_psol/{ubq_site}/cluster_{count_id}/cluster.pdb'
                 traj = md.load(pdb_file)
                 if ubq_site == 'k33':
                     if count_id in [12, 16, 18, 22]:
@@ -1633,7 +1686,7 @@ class EncodermapSPREAnalysis:
                     break
                 cluster_num = row['cluster id']
                 count_id = np.where(np.sort(sub_df['N frames'])[::-1] == row['N frames'])[0][0]
-                cluster_dir = f'/home/kevin/projects/tobias_schneider/cluster_analysis_with_fixed_normalization/{ubq_site}/cluster_{count_id}/'
+                cluster_dir = f'/home/kevin/projects/tobias_schneider/cluster_analysis_with_new_psol/{ubq_site}/cluster_{count_id}/'
                 os.makedirs(cluster_dir, exist_ok=True)
                 image_file = os.path.join(cluster_dir, 'polar_plot.png')
                 pdb_file_out = os.path.join(cluster_dir, 'cluster.pdb')
@@ -1758,9 +1811,9 @@ class EncodermapSPREAnalysis:
             cluster_combination_str = '_and_'.join(np.sort(count_ids[where]).astype(str))
             cluster_combination_str_no_underscore = ' and '.join(np.sort(count_ids[where]).astype(str))
 
-            final_combination_image = f'/home/kevin/projects/tobias_schneider/cluster_analysis_with_fixed_normalization/{ubq_site}/combination_of_clusters_{cluster_combination_str}.png'
-            final_combination_image_all = f'/home/kevin/projects/tobias_schneider/cluster_analysis_with_fixed_normalization/{ubq_site}/all_sims_confidence.png'
-            final_correlation_image_all = f'/home/kevin/projects/tobias_schneider/cluster_analysis_with_fixed_normalization/{ubq_site}/correlation_plot.png'
+            final_combination_image = f'/home/kevin/projects/tobias_schneider/cluster_analysis_with_new_psol/{ubq_site}/combination_of_clusters_{cluster_combination_str}.png'
+            final_combination_image_all = f'/home/kevin/projects/tobias_schneider/cluster_analysis_with_new_psol/{ubq_site}/all_sims_confidence.png'
+            final_correlation_image_all = f'/home/kevin/projects/tobias_schneider/cluster_analysis_with_new_psol/{ubq_site}/correlation_plot.png'
             exp_value = self.df_obs[ubq_site][self.df_obs[ubq_site].index.str.contains('sPRE')].values
             if not os.path.isfile(final_combination_image) or overwrite_final_combination:
                 plt.close('all')
@@ -2058,6 +2111,42 @@ class EncodermapSPREAnalysis:
             else:
                 print("Highd already loaded")
 
+    def train_encodermap_sPRE(self, overwrite=False):
+        for ubq_num, ubq_site in enumerate(self.ubq_sites):
+            train_path = os.path.join(self.analysis_dir, f'runs/{ubq_site}/production_run_tf2_sPRE/')
+            os.makedirs(train_path, exist_ok=True)
+            checkpoints = glob.glob(f'{train_path}*encoder')
+            highd = self.aa_df[(self.aa_df['ubq_site'] == ubq_site)][self.aa_df.columns[self.aa_df.columns.str.contains('normalized')]].fillna(0).values
+            print(highd.shape)
+
+            plt.close('all')
+            em.plot.distance_histogram(data=highd[::100],
+                                       periodicity=float('inf'),
+                                       sigmoid_parameters=(25, 12, 4, 12, 2, 4),
+                                       )
+            plt.savefig(os.path.join(train_path, 'distance_histogram.png'))
+
+            parameters = em.Parameters()
+            parameters.main_path = train_path
+            parameters.n_neurons = [250, 250, 125, 2]
+            parameters.activation_functions = ['', 'tanh', 'tanh', 'tanh', '']
+            parameters.periodicity = float('inf')
+            parameters.dist_sig_parameters = (25, 12, 4, 12, 2, 4)
+            parameters.learning_rate = 0.00001
+            print(f"training {ubq_site}")
+            e_map = em.EncoderMap(parameters, highd)
+            e_map.train()
+            e_map.save()
+
+            lowd = e_map.encode(highd)
+            plt.close('all')
+            fig, (ax1, ax2) = plt.subplots(ncols=2, figsize=(10, 5))
+            ax1.scatter(*lowd.T, s=1)
+            pyemma.plots.plot_free_energy(*lowd.T, ax=ax2, cmap='turbo')
+            plt.savefig(os.path.join(train_path, 'trained_e_map.png'))
+
+
+
     def train_encodermap(self, overwrite=False):
         """Trans encodermap with the RWMD data. Does not add any attributes to self."""
         if self.check_attr_all('lowd') and not overwrite:
@@ -2214,7 +2303,7 @@ class EncodermapSPREAnalysis:
                                   self.aa_df.columns)))
 
                 # define out
-                cluster_analysis_outdir = f'/home/kevin/projects/tobias_schneider/cluster_analysis_with_fixed_normalization/{ubq_site}/cluster_{count_id}'
+                cluster_analysis_outdir = f'/home/kevin/projects/tobias_schneider/cluster_analysis_with_new_psol/{ubq_site}/cluster_{count_id}'
                 os.makedirs(cluster_analysis_outdir, exist_ok=True)
                 image_file = os.path.join(cluster_analysis_outdir, f'{ubq_site}_cluster_{count_id}_summary.png')
 
@@ -2290,7 +2379,7 @@ class EncodermapSPREAnalysis:
             #     df_.to_excel(excel_file, index=False)
             #     raise Exception("STOP")
 
-    def stack_all_clusters(self, dir_='/home/kevin/projects/tobias_schneider/cluster_analysis_with_fixed_normalization/'):
+    def stack_all_clusters(self, dir_='/home/kevin/projects/tobias_schneider/cluster_analysis_with_new_psol/'):
         for file in glob.glob(dir_ + 'k*/cluster*/*500*.pdb'):
             print(file)
 
@@ -2686,7 +2775,7 @@ class EncodermapSPREAnalysis:
         plt.savefig(out_file, dpi=300)
         # plt.savefig(out_file.replace('.png', '.pdf'))
 
-    def fitness_assessment(self, overwrite=False, overwrite_image=False,
+    def fitness_assessment(self, overwrite=False, soft_overwrite=False,
                            parallel=True):
         print("Manually setting cluster exclusions to exclude no clusters.")
         self.cluster_exclusions = {ubq_site: [] for ubq_site in self.ubq_sites}
@@ -2701,13 +2790,13 @@ class EncodermapSPREAnalysis:
                 return ', '.join([str(c) for c in cluster_nums]), diff
             json_savefile = os.path.join(self.analysis_dir, f'quality_factors_with_fixed_normalization_parallel.json')
         self.quality_factor_means = {ubq_site: [] for ubq_site in self.ubq_sites}
-        if not os.path.isfile(json_savefile) or overwrite:
+        if not os.path.isfile(json_savefile) or (overwrite and not soft_overwrite):
             self.all_quality_factors = {ubq_site: {} for ubq_site in self.ubq_sites}
         else:
             with open(json_savefile, 'r') as f:
                 self.all_quality_factors = json.load(f)
 
-        if overwrite:
+        if overwrite or soft_overwrite:
             for ubq_site in self.ubq_sites:
                 obs = self.df_obs[self.df_obs.index.str.contains('sPRE')][ubq_site].values
 
@@ -2732,7 +2821,12 @@ class EncodermapSPREAnalysis:
                         continue
                     mean = np.median(df[sPRE_ind][df['cluster_membership'] == cluster_num], axis=0)
                     cluster_means[cluster_num] = mean
-                # cluster_means = np.vstack(cluster_means)
+                # cluster_means = np.vstack(cluster_means)Karo!!e7
+
+                if soft_overwrite:
+                    if len(self.all_quality_factors[ubq_site].keys()) == len(list(range(2, len(allowed_clusters) + 1))):
+                        print(f"All clusters already in the file for ubq_site {ubq_site}")
+                        continue
 
                 fast_exchange = self.fast_exchangers[ubq_site].values
 
@@ -2741,6 +2835,11 @@ class EncodermapSPREAnalysis:
                 print('checking clusters for ', ubq_site, allowed_clusters, n_clust)
                 for no_of_considered_clusters in range(2, n_clust + 1):
                     print(f'considering {no_of_considered_clusters} clusters')
+                    if soft_overwrite:
+                        if str(no_of_considered_clusters) in self.all_quality_factors[ubq_site]:
+                            print(f"The combinations for {no_of_considered_clusters} for {ubq_site} "
+                                  f"are already in the dict. Continuing.")
+                            continue
                     combinations = itertools.combinations(allowed_clusters, no_of_considered_clusters)
                     if str(no_of_considered_clusters) in self.all_quality_factors[ubq_site] and not overwrite:
                         print(f"{no_of_considered_clusters} already in json")
@@ -2777,8 +2876,9 @@ class EncodermapSPREAnalysis:
                         # unpack results
                         results_dict = {k: v for k, v in results}
                         self.all_quality_factors[ubq_site][str(no_of_considered_clusters)] = results_dict
-                with open(json_savefile, 'w') as f:
-                    json.dump(self.all_quality_factors, f)
+                    with open(json_savefile, 'w') as f:
+                        print("Dumping json")
+                        json.dump(self.all_quality_factors, f)
 
     def plot_fitness_assessment(self, overwrite=False, overwrite_image=True,
                                 parallel=True):
@@ -2800,7 +2900,7 @@ class EncodermapSPREAnalysis:
             print(f"Missing {missing_sites} from file {json_savefile}. Maybe some analysis is still running.")
 
         for ubq_site in sites:
-            image_file = f'/home/kevin/projects/tobias_schneider/cluster_analysis_with_fixed_normalization/fitness_assessment_{ubq_site}.png'
+            image_file = f'/home/kevin/projects/tobias_schneider/cluster_analysis_with_new_psol/fitness_assessment_{ubq_site}.png'
             if not os.path.isfile(image_file) or overwrite or overwrite_image:
                 plt.close('all')
                 # data = np.array(self.quality_factor_means[ubq_site])
@@ -3047,7 +3147,7 @@ class EncodermapSPREAnalysis:
         for ubq_site in self.ubq_sites:
             if self.polar_coordinates_aa[ubq_site] == [[], []] or overwrite:
                 image_file = os.path.join(self.analysis_dir, f'surface_coverage_{ubq_site}.png')
-                image_file2 = f'/home/kevin/projects/tobias_schneider/cluster_analysis_with_fixed_normalization/{ubq_site}/surface_coverage_{ubq_site}.png'
+                image_file2 = f'/home/kevin/projects/tobias_schneider/cluster_analysis_with_new_psol/{ubq_site}/surface_coverage_{ubq_site}.png'
                 polar_coordinates_aa_file = os.path.join(self.analysis_dir, f'polar_coordinates_aa_{ubq_site}.npy')
                 polar_coordinates_cg_file = os.path.join(self.analysis_dir, f'polar_coordinates_cg_{ubq_site}.npy')
 

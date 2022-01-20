@@ -34,6 +34,14 @@ def get_local_or_proj_file(files):
         return glob_files
 
 
+def make_empty_tbl_file(out_file='/home/kevin/git/xplor_functions/xplor/data/diUbi_empty.tbl'):
+    lines = []
+    from .functions.parse_input_files.parse_input_files import label
+    for i in range(152):
+        lines.append(label(i+1, 0, 0) + '\n')
+    with open(out_file, 'w+') as f:
+        f.writelines(lines)
+
 def get_iso_time(in_str):
     """Returns the datetime of a file that starts with an iso time.
 
@@ -47,18 +55,26 @@ def get_iso_time(in_str):
         datetime.time: A datetime timestamp.
 
     """
-    time = dateutil.parser.isoparse(os.path.split(in_str)[-1].split('_')[0])
+    try:
+        time = dateutil.parser.isoparse(os.path.split(in_str)[-1].split('_')[0])
+    except ValueError:
+        if not '+01:00' in in_str:
+            raise Exception("Can not split filename and datetime stamp.")
+        in_str = in_str.split('+01:00')[0] + '+01:00'
+        time = dateutil.parser.isoparse(os.path.split(in_str)[-1].split('_')[0])
     return time
 
 
 def delete_old_csvs(df_outdir='/home/kevin/projects/tobias_schneider/values_from_every_frame/from_package/',
-                   suffix = '_df_no_conect.csv', keep=2):
+                   suffix='_df_no_conect.csv', keep=2):
     """Deletes old unwanted csv's.
 
     Keyword Args:
         keep (int, optional): How many csv files to keep.
 
     """
+    if not df_outdir.endswith('/'):
+        df_outdir = df_outdir + '/'
     files = glob.glob(f'{df_outdir}*{suffix}')
     if len(files) > keep:
         sorted_files = sorted(files, key=get_iso_time)

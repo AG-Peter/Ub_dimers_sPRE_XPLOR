@@ -72,26 +72,84 @@ analysis.get_values_of_combinations()
 
 # %% develop an analysis function
 import xplor
-if not 'analysis' in globals():
-    analysis = xplor.functions.EncodermapSPREAnalysis(['k6', 'k29', 'k33'])
-    analysis.df_comp = 'all_frames'
-    analysis.make_large_df(False)
-    # analysis.add_count_ids(False)
-# analysis.fix_broken_pdbs()
-# analysis.add_centroids_to_df(testing=False)
-# analysis.check_normalization()
-# analysis.run_per_cluster_analysis(overwrite_final_correlation=True,
-#                                   overwrite_final_combination=True)
-# analysis.get_mixed_correlation_plots(overwrite=True, exclude_0_and_nan=False)
-# analysis.fitness_assessment(True)
-# analysis.ubq_sites = ['k6', 'k29', 'k33']
-# analysis.cluster_analysis(overwrite=True,
-#                           save_pdb_only_needed_count_ids={'k6': [0, 1, 2, 11],
-#                                                           'k29': [0, 11, 12],
-#                                                           'k33': [0, 1, 9, 19]})
-# analysis.stack_all_clusters()
-analysis.prepare_csv_files()
+# if not 'analysis' in globals():
+analysis = xplor.functions.EncodermapSPREAnalysis(['k6', 'k29', 'k33'])
+analysis.df_comp = 'new_psol'
+analysis.make_large_df(False)
+analysis.add_count_ids(False)
+analysis.fitness_assessment(soft_overwrite=True)
+analysis.fix_broken_pdbs()
+analysis.add_centroids_to_df(testing=False)
+analysis.check_normalization()
+analysis.run_per_cluster_analysis(overwrite_final_correlation=True,
+                                  overwrite_final_combination=True)
+analysis.get_mixed_correlation_plots(overwrite=True, exclude_0_and_nan=False)
+analysis.ubq_sites = ['k6', 'k29', 'k33']
+analysis.cluster_analysis(overwrite=True,
+                          save_pdb_only_needed_count_ids={'k6': [0, 1, 2, 11],
+                                                          'k29': [0, 11, 12],
+                                                          'k33': [0, 1, 9, 19]})
+analysis.stack_all_clusters()
+analysis.prepare_csv_files(check_empty_and_zero_columns=False)
+# analysis.train_encodermap_sPRE(True)
 # analysis.analyze_mean_abs_diff_all()
+
+# %% Check whether series_from_mdtraj contains distal THR9
+import ast
+from xplor.functions.functions import get_series_from_mdtraj, Capturing
+from xplor.functions.custom_gromacstopfile import CustomGromacsTopFile
+from xplor.checks import call_xplor_from_frame_and_single_residue
+
+# read rge empty tbl
+ints_in_empty_tbl = []
+with open('/home/kevin/git/xplor_functions/xplor/data/diUbi_empty.tbl') as f:
+    for l in f.read().splitlines():
+        i = int(l.split()[2])
+        ints_in_empty_tbl.append(i)
+
+xtc_file, pdb_file = analysis.aa_df.iloc[0][['traj_file', 'top_file']]
+frame = md.load_frame(xtc_file, 0, top=pdb_file)
+
+with Capturing() as output:
+    top_aa = CustomGromacsTopFile(
+        f'/home/andrejb/Software/custom_tools/topology_builder/topologies/gromos54a7-isop/diUBQ_K6/system.top',
+        includeDir='/home/andrejb/Software/gmx_forcefields')
+frame.top = md.Topology.from_openmm(top_aa.topology)
+
+isopeptide_indices = []
+isopeptide_bonds = []
+for r in frame.top.residues:
+    if r.name == 'GLQ':
+        r.name = 'GLY'
+        for a in r.atoms:
+            if a.name == 'C':
+                isopeptide_indices.append(a.index + 1)
+                isopeptide_bonds.append(f"{a.residue.name} {a.residue.resSeq} {a.name}")
+    if r.name == 'LYQ':
+        r.name = 'LYS'
+        for a in r.atoms:
+            if a.name == 'CQ': a.name = 'CE'
+            if a.name == 'NQ':
+                a.name = 'NZ'
+                isopeptide_indices.append(a.index + 1)
+                isopeptide_bonds.append(f"{a.residue.name} {a.residue.resSeq} {a.name}")
+            if a.name == 'HQ': a.name = 'HZ1'
+
+# first use the function from checks.py
+_, __, out = call_xplor_from_frame_and_single_residue(frame, ints_in_empty_tbl)
+out = out.replace('findImportantAtoms: done\n', '')
+out = ast.literal_eval(out)
+index = [i[1] == str(9) for i in out].index(True)
+print(out[index])
+
+# then use the get_series_from_mdtraj_function
+series = get_series_from_mdtraj(frame, xtc_file, pdb_file, 0, fix_isopeptides=False)
+for col in series.index:
+    if 'sPRE' in col:
+        print(col, series[col])
+
+# %% Compare exp and sim
+analysis.compare_exp_sim('k6', 'proximal PHE4 sPRE')
 
 # %% count the sims in k6 sount_id == 0
 analysis.aa_df[(analysis.aa_df['ubq_site'] == 'k6') & (analysis.aa_df['count id'] == 0)]

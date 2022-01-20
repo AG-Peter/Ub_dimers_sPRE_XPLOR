@@ -21,6 +21,7 @@ from simtk.openmm.app import PDBFile
 import builtins
 from scipy.optimize import minimize, NonlinearConstraint, Bounds, nnls
 from typing import Callable
+from ..misc import delete_old_csvs
 
 
 ################################################################################
@@ -59,6 +60,7 @@ def _redefine_os_path_exists():
             return orig_func(path)
     os.path.exists = new_func
 
+
 def _redefine_open():
     orig_func = builtins.open
     def new_func(*args, **kwargs):
@@ -68,12 +70,13 @@ def _redefine_open():
             return orig_func(*args, **kwargs)
     builtins.open = new_func
 
+
 class RAMFile(StringIO):
     def lower(self):
         return 'tmp_stringio.pdb'
-
     def close(self):
         pass
+
 
 _redefine_os_path_exists()
 _redefine_open()
@@ -308,19 +311,30 @@ def normalize_sPRE(df_comp, df_obs, kind='var', norm_res_count=10, get_factors=F
 
         sPRE_calc_norm = []
 
+        def sorting_func(index):
+            new_index = index.map(lambda x: int(x.split()[1][3:]))
+            return new_index
+
         # get the mean values along the columns
         # get the threshold of the <norm_res_count> lowest values
         if kind == 'var':
             v_calc = sPRE_comp.var(axis='rows')
             if np.any(np.isnan(v_calc)):
                 v_calc[np.isnan(v_calc)] = 0
-            v_calc_prox = v_calc[prox_columns].values
-            v_calc_dist = v_calc[dist_columns].values
+            v_calc_prox = v_calc[prox_columns]
+            v_calc_dist = v_calc[dist_columns]
             assert v_calc_prox.shape == v_calc_dist.shape
-            threshold_prox = np.partition(v_calc_prox[np.nonzero(v_calc_prox)], norm_res_count)[norm_res_count - 1]
-            threshold_dist = np.partition(v_calc_dist[np.nonzero(v_calc_dist)], norm_res_count)[norm_res_count - 1]
+            prox_nonzero = v_calc_prox[v_calc_prox != 0]
+            dist_nonzero = v_calc_dist[v_calc_dist != 0]
+            assert v_calc_prox.shape[0] > prox_nonzero.shape[0]
+            assert v_calc_dist.shape[0] > dist_nonzero.shape[0]
+            threshold_prox = prox_nonzero.nsmallest(norm_res_count).max()
+            residues_prox = prox_nonzero.nsmallest(norm_res_count).sort_index(key=sorting_func)
+            threshold_dist = dist_nonzero.nsmallest(norm_res_count).max()
+            residues_dist = dist_nonzero.nsmallest(norm_res_count).sort_index(key=sorting_func)
             print(f"Proximal threshold = {threshold_prox}, Distal threshold = {threshold_dist}")
         elif kind == 'mean':
+            raise Exception("Rework similar to `var` method.")
             v_calc = sPRE_comp.var(axis='rows')
             v_calc_prox = v_calc[prox_columns].values
             v_calc_dist = v_calc[dist_columns].values
@@ -332,21 +346,29 @@ def normalize_sPRE(df_comp, df_obs, kind='var', norm_res_count=10, get_factors=F
 
         # get the columns that fulfill this condition
         min_values_prox = (v_calc_prox <= threshold_prox) & (v_calc_prox != 0.0)
-        centers_prox = np.where(min_values_prox)[0] + 76
+        centers_prox = np.where(min_values_prox)[0]
         min_values_dist = (v_calc_dist <= threshold_dist) & (v_calc_dist != 0.0)
-        centers_dist = np.where(min_values_dist)[0]
+        centers_dist = np.where(min_values_dist)[0] + 76
 
-        print(f"Considered residues are Prox: {residues[centers_prox - 76]} and Dist: {residues[centers_dist]}")
+        print(f"Considered residues are Prox: {residues_prox.index.tolist()} with these variances: {np.round(residues_prox.values, 4).tolist()}"
+              f"\nand Dist: {residues_dist.index.tolist()} with these variances: {np.round(residues_prox.values, 4).tolist()}")
 
         # test + 76
-        a = v_calc_dist[min_values_dist][0]
-        b = v_calc[centers_dist][0]
-        assert a == b
+        a = v_calc_dist[min_values_dist]
+        b = v_calc[centers_dist]
+        if not a.equals(b):
+            # print(v_calc)
+            raise Exception(f"Centers do not match. Maybe prox and dist was "
+                            f"mixed up? a is {a}, b is {b}, min_values_dist "
+                            f"is {min_values_dist} and centers_dist is "
+                            f"{centers_dist}")
 
         # get the factors
-        v_calc = sPRE_comp.mean(axis='rows').values
-        factors_prox = v_obs[centers_prox] / v_calc[centers_prox]
-        factors_dist = v_obs[centers_dist] / v_calc[centers_dist]
+        v_calc = sPRE_comp.mean(axis='rows')
+        factors_prox = df_obs[ubq_site][residues_prox.index].values / v_calc[residues_prox.index].values
+        factors_dist = df_obs[ubq_site][residues_dist.index].values / v_calc[residues_dist.index].values
+        print(df_obs)
+        raise Exception("STOP")
         f_prox = np.mean(factors_prox)
         f_dist = np.mean(factors_dist)
         factors_out[ubq_site] = {'proximal': f_prox, 'distal': f_dist}
@@ -436,8 +458,11 @@ def normalize_sPRE(df_comp, df_obs, kind='var', norm_res_count=10, get_factors=F
             # test whether numpy multiplication works
             test = np.unique(np.unique(new_values / old_values).round(10))
             mask = np.logical_and(~np.isnan(test), test != 0)
+            if ubq_site == 'k33' and type_ == 'distal':
+                print(test, mask)
+                raise Exception("STOP")
             test_ = test[mask]
-            assert np.isclose(test_, factor)
+            assert np.isclose(test_, factor), print(test_, factor)
             assert len(norm_cols) == new_values.T.shape[0]
 
             new_df[norm_cols] = new_values
@@ -471,7 +496,7 @@ def normalize_sPRE(df_comp, df_obs, kind='var', norm_res_count=10, get_factors=F
 
     df_comp_w_norm = df_comp_w_norm.fillna(0)
 
-    return df_comp_w_norm, centers_prox - 76, centers_dist
+    return df_comp_w_norm, centers_prox, centers_dist - 76 # changed due to new nmin method from pandas
 
 
 def call_xplor_with_yaml(pdb_file, psf_file=None, yaml_file='', from_tmp=False,
@@ -521,8 +546,12 @@ def call_xplor_with_yaml(pdb_file, psf_file=None, yaml_file='', from_tmp=False,
     # get the datafiles
     for pot in ['psol', 'rrp600', 'rrp800']:
         if pot in defaults:
-           filename = get_local_or_proj_file(defaults[pot]['call_parameters']['restraints']['value'])
-           defaults[pot]['call_parameters']['restraints']['value'] = filename
+            filename = get_local_or_proj_file(defaults[pot]['call_parameters']['restraints']['value'])
+            if not os.path.exists(filename) and not 'empty' in filename:
+                raise Exception(f"The restraint file {filename} does not exist.")
+            elif not os.path.exists(filename) and 'empty' in filename:
+                raise NotImplementedError("Write a function to write an empty tbl file to /tmp and pass that")
+            defaults[pot]['call_parameters']['restraints']['value'] = filename
 
     # make arguments out of them
     arguments = write_argparse_lines_from_yaml_or_dict(defaults)
@@ -566,7 +595,8 @@ def call_xplor_with_yaml(pdb_file, psf_file=None, yaml_file='', from_tmp=False,
 def parallel_xplor(ubq_sites, simdir='/home/andrejb/Research/SIMS/2017_*', n_threads='max-2',
                    df_outdir='/home/kevin/projects/tobias_schneider/values_from_every_frame/from_package/',
                    suffix='_df_no_conect.csv', write_csv=True, fix_isopeptides=True, specific_index=None, parallel=False,
-                   subsample=5, yaml_file='', testing=False, from_tmp=False, max_len=-1, break_after=False, **kwargs):
+                   subsample=5, yaml_file='', testing=False, from_tmp=False, max_len=-1, break_after=False,
+                   delete_csvs=None, **kwargs):
     """Runs xplor on many simulations in parallel.
 
     This function is somewhat specific and there are some hardcoded directories
@@ -617,6 +647,9 @@ def parallel_xplor(ubq_sites, simdir='/home/andrejb/Research/SIMS/2017_*', n_thr
             techniyue. Can also take an int, that is larger than `subsample`, in that
             case, only every `fix_isopeptided` frame will use this technique, the other
             frames will use the old, faster protocol. Defaults to 25.
+        delete_old_csvs (Union[int, None]): To delete old csvs and save some disk-space.
+            Uses misc.delete_old_csvs with `keep=delete_old_csvs` to keep the specified
+            number of dataframes.
         **kwargs: Arbitrary keyword arguments. Keywords that are not flags
             of the xplor/scripts/xplor_single_struct_script.py will be discarded.
 
@@ -758,6 +791,8 @@ def parallel_xplor(ubq_sites, simdir='/home/andrejb/Research/SIMS/2017_*', n_thr
             df = df.append(out, ignore_index=True)
             if write_csv:
                 df.to_csv(df_name)
+            if isinstance(delete_old_csvs, int):
+                delete_old_csvs(df_outdir=df_outdir, suffix=suffix, keep=delete_csvs)
             if testing:
                 break
             if break_after:
@@ -1421,7 +1456,8 @@ def test_mdtraj_stringio(frame, traj_file, top_file, frame_no, testing=False,
 
 def get_series_from_mdtraj(frame, traj_file, top_file, frame_no, testing=False,
                            from_tmp=False, yaml_file='', fix_isopeptides=True,
-                           check_fix_isopeptides=False, isopeptide_bonds=None, **kwargs):
+                           check_fix_isopeptides=False, isopeptide_bonds=None,
+                           print_raw_out=False, test_single_residue=False, **kwargs):
     """Saves a temporary pdb file which will then be passed to call_xplor_with_yaml
 
     Arguments for XPLOR can be provided by either specifying a yaml file, or
@@ -1531,7 +1567,11 @@ def get_series_from_mdtraj(frame, traj_file, top_file, frame_no, testing=False,
         try:
             out = call_xplor_with_yaml(pdb_file, psf_file=None, from_tmp=from_tmp, testing=testing,
                                        yaml_file=yaml_file, fix_isopeptides=False, **kwargs)
-            out = ast.literal_eval(out)
+            try:
+                out = ast.literal_eval(out)
+            except SyntaxError:
+                print(out)
+                raise
         finally:
             os.remove(pdb_file)
 
@@ -1541,25 +1581,38 @@ def get_series_from_mdtraj(frame, traj_file, top_file, frame_no, testing=False,
             print(psol)
             raise Exception(f"This psol value should not be 0. Traj is {traj_file}, frame is {frame_no}")
 
+    if print_raw_out:
+        print(out)
+
     for o in out:
         # switched from <= to > because prox and dist was mixed up.
-        if int(o[1]) > (should_be_residue_number / 2) - 1:
-            resSeq = int(o[1])
+        if int(o[1]) > (should_be_residue_number / 2):
+            resSeq = int(int(o[1]) - (should_be_residue_number / 2)) # changed from int(o[1]) to this to fix prox dist misunderstanding
             position = 'proximal'
         else:
-            resSeq = int(int(o[1]) - (should_be_residue_number / 2))
+            resSeq = int(o[1]) # changed from int(int(o[1]) - (should_be_residue_number / 2)) to this to fix prox dist misunderstanding
             position = 'distal'
+
         try:
             resname = frame.top.residue(int(o[1]) - 1).name
         except TypeError:
             print(o)
             raise
+
+        if resSeq <= 0:
+            raise Exception(f"A resSeq can not be 0, but {resSeq} was computed for {o}")
+
         if o[0] == 'rrp600':
             series[f'{position} {resname}{resSeq} 15N_relax_600'] = o[2]
         elif o[0] == 'rrp800':
             series[f'{position} {resname}{resSeq} 15N_relax_800'] = o[2]
         elif o[0] == 'psol':
             series[f'{position} {resname}{resSeq} sPRE'] = o[2]
+
+        if test_single_residue:
+            if f'{position} {resname}{resSeq} sPRE' == test_single_residue:
+                print(o[2])
+                raise Exception("STOP")
 
     basename, ubq_site = get_ubq_site_and_basename(traj_file)
     series['basename'] = basename

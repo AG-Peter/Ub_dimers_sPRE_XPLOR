@@ -8,7 +8,7 @@ psol:
         It can contain any string and can be used to
     restraints:
       type: file
-      value: data/diUbi_k6_sPRE_in.tbl
+      value: data/diUbi_empty.tbl
       descr: |
         The location of the spre_tble file that will be passed to XPLOR.
         The spre table file needs to be formatted as such:

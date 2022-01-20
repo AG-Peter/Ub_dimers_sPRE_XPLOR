@@ -84,12 +84,18 @@ series = xplor.functions.get_series_from_mdtraj(frame, xtc, pdb, 0, from_tmp=Tru
 pd.options.display.min_rows = 40
 
 # %% Why are the series with isopeptides empty?
-_ = xplor.functions.parallel_xplor(['k6', 'k29', 'k33'], from_tmp=True, write_csv=False,
-                                  df_outdir='/home/kevin/projects/tobias_schneider/values_from_every_frame/from_package_with_conect/',
-                                  suffix='_df.csv', parallel=False)
+# _ = xplor.functions.parallel_xplor(['k6', 'k29', 'k33'], from_tmp=True, write_csv=False,
+#                                   df_outdir='/home/kevin/projects/tobias_schneider/values_from_every_frame/from_package_with_conect/',
+#                                   suffix='_df.csv', parallel=False)
 
 # %% Prepare the psf files
 # xplor.functions.create_psf_files(['k6', 'k29', 'k33'])
+
+# %% Check whether residue 80 is missing, although it would have produced
+# values. Residue 80 in this case is the ['k6', 'proximal PHE4 sPRE'] aa, which
+# is consistently zero in all files
+df = xplor.functions.parse_input_files.make_sPRE_table(f'data/spre_and_relaxation_data_k6_k29_k33/di_ub2_k6_*_sPRE.txt',
+                                                       print_instead_of_write=True)
 
 
 # %% make the tbl files

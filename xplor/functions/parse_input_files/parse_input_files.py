@@ -9,6 +9,7 @@ import pandas as pd
 import itertools
 from ...misc import get_local_or_proj_file
 from ...proteins import get_column_names_from_pdb
+from ..functions import RAMFile
 
 
 ################################################################################
@@ -140,7 +141,8 @@ def getResSeq(lines):
                     filter(lambda x: False if (x == '' or 'mM' in x or 'primary' in x) else True, lines)))
 
 
-def make_sPRE_table(in_files, out_file=None, return_df=True, split_prox_dist=False, omit_erros=True):
+def make_sPRE_table(in_files, out_file=None, return_df=True, split_prox_dist=False,
+                    omit_erros=True, print_instead_of_write=False):
     """Creates a pandas dataframe from a sPRE results file provided by Tobias Schneider.
 
     The input is expected to be a .txt file akin to this layout::
@@ -170,57 +172,58 @@ def make_sPRE_table(in_files, out_file=None, return_df=True, split_prox_dist=Fal
         split_prox_dist (bool, optional): Whether to split prox and dist into their own
             .tbl files or combine them.
 
+    Example:
+        >>> import xplor
+        >>> xplor.functions.parse_input_files.make_15_N_table(f'data/spre_and_relaxation_data_k6_k29_k33/relaxation_file_ub2_{ubq_site}.txt',
+        ...                                                   out_file=f'{os.getcwd()}/xplor/data/diUbi_sPRE_{ubq_site}_w_CONECT.tbl')
+
     Returns:
         Union[None, pd.Dataframe]: Either None or the pandas dataframe.
 
     """
+    # raise Exception("The parser does not parse lines with <space><tab> as separators. Fix this.")
     residues_with_errors = [78, 79]
     in_files = get_local_or_proj_file(in_files)
     files = sorted(in_files, key=lambda x: 1 if ('proximal' in x or 'prox' in x) else 2)
+    assert 'prox' in files[0] and 'dist' not in files[0]
+    assert 'dist' in files[1] and 'prox' not in files[1]
     assert len(files) == 2, print(f"I need a proximal and a distal file. I found {files}")
     proximal, distal = files
 
     file = proximal
-    new_lines = []
-    with open(file, 'r') as f:
-        lines = f.read().splitlines()
-    for i, l in enumerate(lines):
-        if l == '' or i == 1:
-            continue
-        if i == 0:
-            main_labels = l.split('\t')
-            df = {k: [] for k in main_labels}
-            continue
-        for k, v in zip(main_labels, l.split('\t')):
-            df[k].append(v)
-    df['resSeq'] = getResSeq(lines)
-    df['position'] = np.full(len(df['resSeq']), 'proximal').tolist()
+    df = pd.read_csv(file, skiprows=[0, 1], delimiter=r'\s+', na_values=['--'],
+                     names=['primary sequence', 'sPRE', 'err'], header=None)
+    df['resSeq'] = df['primary sequence'].apply(lambda x: int(x[3:]))
+    df['position'] = 'proximal'
+
 
     file = distal
-    with open(file, 'r') as f:
-        lines = f.read().splitlines()
-    for i, l in enumerate(lines):
-        if l == '' or i == 0 or i == 1:
-            continue
-        for k, v in zip(main_labels, l.split('\t')):
-            df[k].append(v)
-    max_ = max(df['resSeq'])
-    resSeq = list(map(lambda x: x + max_, getResSeq(lines)))
-    df['resSeq'].extend(resSeq)
-    df['position'].extend(np.full(len(resSeq), 'distal').tolist())
-    df = pd.DataFrame(df)
+    df2 = pd.read_csv(file, skiprows=[0, 1], delimiter=r'\s+', na_values=['--'],
+                     names=['primary sequence', 'sPRE', 'err'], header=None)
+    df2['resSeq'] = df['primary sequence'].apply(lambda x: int(x[3:]))
+    df2['position'] = 'distal'
 
-    df['sPRE'] = pd.to_numeric(df['sPRE'], errors='coerce')
-    df['err'] = pd.to_numeric(df['err'], errors='coerce')
+    # print(df2)
+    # raise Exception("STOP")
+
+    df = pd.concat([df, df2])
+
+    if print_instead_of_write:
+        out_file = RAMFile()
 
     if out_file is not None:
         if not split_prox_dist:
             with open(out_file, 'w') as f:
                 for i, row in df.iterrows():
+                    if row['primary sequence'] == 'Phe4':
+                        print(row)
                     if any(pd.isna(row)):
                         continue
                     new_line = label(row['resSeq'], row['sPRE'], row['err'])
                     if omit_erros and row['resSeq'] in residues_with_errors:
+                        print(f"Line {label(row['resSeq'], row['sPRE'], row['err'])} was ommitted, due to chosen option "
+                              f"`omit_errors`, which is {omit_erros} and excluded {row['resSeq']}, because it's listed "
+                              f"in `residues_with_errors`, which is {residues_with_errors}.")
                         continue
                     f.write(new_line + '\n')
             print(out_file, 'written')
@@ -239,9 +242,17 @@ def make_sPRE_table(in_files, out_file=None, return_df=True, split_prox_dist=Fal
                         if i == 0:
                             new_line = label(row['resSeq'], row['sPRE'], row['err'])
                         else:
-                            new_line = label(row['resSeq'] - max_, row['sPRE'], row['err'])
+                            # the max() in this line stems from a way of obtaining the highest distal resSeq
+                            # See this line for more info
+                            # https://github.com/kevinsawade/xplor_functions/blob/e9382db966026b1ada1dff53d25374ed620e908d/xplor/functions/parse_input_files/parse_input_files.py#L207
+                            new_line = label(row['resSeq'] - max(df[df['position'] == 'distal']['resSeq']), row['sPRE'], row['err'])
                         f.write(new_line + '\n')
             print(fnames, 'written')
+
+    # if print_instead_of_write:
+    #     out_file.seek(0)
+    #     print(out_file.read())
+
     if return_df:
         return df
 
@@ -273,8 +284,56 @@ def get_observed_df(ubq_sites, sPRE='data/spre_and_relaxation_data_k6_k29_k33/di
     # get residues from PDB ID
     residues = get_column_names_from_pdb(return_residues=True)
 
-    df_obs = [[] for _ in ubq_sites]
-    labels = []
+    # define an index
+    index = []
+    relax_indices = []
+    for type_ in ['sPRE', '15N_relax_600', '15N_relax_800']:
+        for pos in ['proximal', 'distal']:
+            for r in residues:
+                index.append(f"{pos} {r} {type_}")
+                if 'relax' in type_:
+                    relax_indices.append(f"{pos} {r} {type_}")
+
+    # sPRE
+    dfs_out = []
+    dfs = [make_sPRE_table(sPRE.replace('ubq_site', ubq_site)) for ubq_site in ubq_sites]
+    for i, (df, ubq_site) in enumerate(zip(dfs, ubq_sites)):
+        df['ubq_site'] = ubq_site
+        df.index = df['position'] + ' ' + df['primary sequence'].str.upper() + ' sPRE'
+        df = df.rename(columns={'sPRE': ubq_site})[ubq_site].to_frame()
+        dfs_out.append(df)
+    df1 = pd.concat(dfs_out, axis='columns')
+
+    # relax ratios
+    dfs_out = []
+    dfs = [make_15_N_table(relax.replace('ubq_site', ubq_site)) for ubq_site in ubq_sites]
+    for i, (df, ubq_site) in enumerate(zip(dfs, ubq_sites)):
+        df['ubq_site'] = ubq_site
+        # print(df[(df['position'] == 'proximal') & (df['freq of spectrometer (MHz)'] == 600.0)]['resSeq'].unique())
+        df.at[df['position'] == 'distal', 'resSeq'] = df[df['position'] == 'distal']['resSeq'] - 76
+        # print(df[(df['position'] == 'distal') & (df['freq of spectrometer (MHz)'] == 600.0)]['resSeq'].unique())
+        # print(len(residues))
+        # print(residues[-1])
+        df.index = df['position'] + ' ' + np.array(residues)[df['resSeq'] - 1] + ' 15N_relax_' + df['freq of spectrometer (MHz)'].apply(int).apply(str)
+        df[ubq_site] = df['R2 rate (1/s)'] / df['R1 rate (1/s)']
+        df = df[ubq_site].to_frame()
+
+        # find duplicates
+        u, c = np.unique(df.index.values, return_counts=True)
+        dup = u[c > 1]
+        assert dup.size == 0
+
+        # find duplicates?
+        dfs_out.append(df)
+    df2 = pd.concat(dfs_out, axis='columns')
+
+    # concat
+    df = pd.concat([df1, df2], axis='rows')
+    # df = df.reindex(index, fill_value=0)
+    df = df.fillna(0)
+    print(df)
+    raise Exception("STOP")
+
     for i, ubq_site in enumerate(ubq_sites):
         df = make_sPRE_table(sPRE.replace('ubq_site', ubq_site))
         for position in ['proximal', 'distal']:
@@ -320,6 +379,7 @@ def get_observed_df(ubq_sites, sPRE='data/spre_and_relaxation_data_k6_k29_k33/di
                         raise Exception("STOP")
     df_obs = pd.DataFrame(data=np.array(df_obs).T, index=labels, columns=ubq_sites)
     df_obs = df_obs.fillna(0)
+    df_obs = df_obs.reindex(index, fill_value=0)
     return df_obs
 
 
