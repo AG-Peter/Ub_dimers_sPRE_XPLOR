@@ -135,3 +135,25 @@ Traceback (most recent call last):
   File "/home/kevin/.conda/envs/py39_tf2/lib/python3.9/urllib/request.py", line 1349, in do_open
     raise URLError(err)
 urllib.error.URLError: <urlopen error [Errno 110] Connection timed out>
+/home/kevin/projects/encoder_map_private/encodermap/loading/features.py:36: UserWarning: Features need Unittests
+  warnings.warn("Features need Unittests")
+Redefining os.path.isfile to work with tmp_stringio.pdb
+Redefining open() to work with tmp_stringio.pdb
+All clusters already in the file for ubq_site k6
+Starting fitness assessment.
+checking clusters for  k29 [ 0  1  2  3  4  5  6  7  8  9 10 11 12 13 14 15 16 17] 18
+considering 2 clusters
+The combinations for 2 for k29 are already in the dict. Continuing.
+considering 3 clusters
+The combinations for 3 for k29 are already in the dict. Continuing.
+considering 4 clusters
+The combinations for 4 for k29 are already in the dict. Continuing.
+considering 5 clusters
+The combinations for 5 for k29 are already in the dict. Continuing.
+considering 6 clusters
+The combinations for 6 for k29 are already in the dict. Continuing.
+considering 7 clusters
+The combinations for 7 for k29 are already in the dict. Continuing.
+considering 8 clusters
+The combinations for 8 for k29 are already in the dict. Continuing.
+considering 9 clusters

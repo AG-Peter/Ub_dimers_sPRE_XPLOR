@@ -27,7 +27,7 @@ from ..nmr_plot.nmr_plot import *
 import dateutil
 import pyemma
 import hdbscan
-from .parse_input_files.parse_input_files import get_observed_df, get_fast_exchangers, get_in_secondary
+from .parse_input_files.parse_input_files import get_observed_df, get_fast_exchangers, get_in_secondary, get_column_names_from_pdb
 from string import ascii_uppercase
 import cartopy.crs as ccrs
 from ..misc import get_iso_time
@@ -64,6 +64,9 @@ class SimExpDifference(Exception):
         super().__init__(msg)
 
 
+class THR9MissingException(Exception):
+    pass
+
 
 ################################################################################
 # Functions
@@ -95,6 +98,18 @@ def check_sPRE_normalization(df):
         else:
             print(test)
             assert np.isclose(test, f_dist)
+
+
+def ensure_thr9_is_nonzero(df):
+    assert 'distal THR9 sPRE' in df.columns
+    values = np.nanmean(df['distal THR9 sPRE'].values)
+    columns = df.columns[~ df.columns.str.contains('prox|dist')].tolist() + ['distal THR9 sPRE']
+    if values is np.nan:
+        raise THR9MissingException(f"The distal THR9 column in the df is full with nans. Columns contain {df.iloc[0][columns]}")
+    elif values == 0:
+        raise THR9MissingException(f"The distal THR9 column in the df is zero. Columns contain {df.iloc[0][columns]}")
+    else:
+        print("The distal THR9 column contains valid values.")
 
 
 def ckpt_step(file):
@@ -428,9 +443,9 @@ def get_prox_indices(traj, traf_file):
 def get_dist_indices(traj, traj_file):
     CA = []
     if prox_is_first(traj):
-        raise Exception(f"For the traj {traf_file}, the proximal unit is first in the chain.")
+        raise Exception(f"For the traj {traj_file}, the proximal unit is first in the chain.")
     else:
-        raise Exception(f"For the traj {traf_file}, the proximal unit is later in the chain.")
+        raise Exception(f"For the traj {traj_file}, the proximal unit is later in the chain.")
 
 
 def replace_top_with_gromos(traj, ubq_site):
@@ -515,14 +530,90 @@ def map_nested_dicts(ob, func):
         return func(ob)
 
 
+def get_mean_abs_diff(sim, exp, ubq_site=None,
+                  fast_exchangers=None,
+                  exclude_non_exp_values=True):
+    """Calculate the mean absolute difference between simulated and observed sPRE
+    values.
+
+    Simulated and experimental values need to be pandas Dataframe or Series.
+
+    Normally, the ubiquitination site and the position (proximal, distal) is
+    inferred from the input. If the input is not unambiguous, the arguments
+    `ubq_site` and `position` should be supplied.
+
+    """
+    # check if sim and exp are pandas datatypes
+    if not getattr(sim, '__module__', None).split('.')[0] == pd.__name__:
+        raise Exception(f"Please provide a pandas object as `sim`. You provided {type(sim)}.")
+    if not getattr(exp, '__module__', None).split('.')[0] == pd.__name__:
+        raise Exception(f"Please provide a pandas object as `exp`. You provided {type(sim)}.")
+
+    if not 'ubq_site' in sim and ubq_site is None:
+        raise Exception("The simulated dataframe does not specify a ubq_site. Please provide manually.")
+    elif ubq_site is not None:
+        raise NotImplementedError()
+    elif 'ubq_site' in sim and ubq_site is None:
+        if hasattr(sim, 'ubq_site'):
+            ubq_site = sim.ubq_site
+        elif not len(sim['ubq_site'].unique()) == 1:
+            raise Exception("There are more than 1 ubq_site in the sim dataframe. Plase specify via the ubq_site arg.")
+        else:
+            ubq_site = sim['ubq_site'].unique()[0]
+
+    if isinstance(exp, pd.Series):
+        if not ubq_site == exp.name:
+            raise Exception(f"Ubq_site and name of exp slice do not match. The sim has ubq_site {ubq_site}, the exp has {exp.name}")
+        cols_exp = exp.index[exp.index.str.contains('sPRE')]
+        non_exp_values = exp.index[exp == 0]
+    else:
+        raise NotImplementedError("Slice the exp dataframe")
+
+    if isinstance(sim, pd.Series):
+        cols_sim = sim.index[sim.index.str.contains('sPRE')]
+    else:
+        cols_sim = sim.columns[sim.columns.str.contains('sPRE')]
+
+    if set(cols_exp) - set(cols_sim):
+        if cols_sim.str.contains('normalized').any(None):
+            if isinstance(sim, pd.Series):
+                sim.index = sim.index.str.replace('normalized ', '')
+            else:
+                sim.columns = sim.columns.str.replace('normalized ', '')
+        else:
+            raise Exception("Rename columns manually.")
+
+    out_df = sim.copy().to_frame().T
+    out_df = out_df.drop('ubq_site', axis='columns')
+    out_df = out_df.subtract(exp, axis='columns').abs()
+
+    if exclude_non_exp_values:
+        out_df = out_df.drop(non_exp_values, axis='columns', errors='ignore')
+
+    if fast_exchangers is not None:
+        fast_exchangers = fast_exchangers[ubq_site]
+        fast_exchangers.index = fast_exchangers.index.str.replace('fast_exchange', 'sPRE')
+        out_df = out_df.drop(fast_exchangers.index[fast_exchangers], axis='columns', errors='ignore')
+
+    val = out_df.mean('columns').values
+    assert len(val) == 1
+    return val[0]
+
+
+################################################################################
+# Metaclasses
+################################################################################
+
+
+
+
+
 ################################################################################
 # Classes
 ################################################################################
 
 
 class EncodermapSPREAnalysis:
-    """ A python singleton """
-
     def __init__(self, ubq_sites,
                  sim_dirs=['/home/andrejb/Research/SIMS/2017_*',
                           '/home/kevin/projects/molsim/diUbi_aa/'],
@@ -544,6 +635,9 @@ class EncodermapSPREAnalysis:
             os.makedirs(self.analysis_dir)
         # self.cluster_exclusions = {'k6': [3], 'k29': [7], 'k33': [6]}
 
+    def _return_true(self):
+        return True
+
     @property
     def base_traj_k6(self):
         return md.load('/home/andrejb/Software/custom_tools/topology_builder/topologies/gromos54a7-isop/diUBQ_K6/0.pdb')
@@ -558,7 +652,9 @@ class EncodermapSPREAnalysis:
 
     @property
     def df_obs(self):
-        return get_observed_df(self.ubq_sites)
+        out = get_observed_df(self.ubq_sites)
+        # assert set(out.keys()) == set(self.ubq_sites)
+        return out
 
     @property
     def fast_exchangers(self):
@@ -575,8 +671,8 @@ class EncodermapSPREAnalysis:
 
     @property
     def large_df_file(self):
-        raise Exception("This needs to use the new new_psol_all values.")
-        return '/mnt/data/kevin/xplor_analysis_files/lowd_and_xplor_df.csv'
+        return '/mnt/data/kevin/xplor_analysis_files/lowd_and_xplor_df_new_psol.csv'
+        # return '/mnt/data/kevin/xplor_analysis_files/lowd_and_xplor_df.csv'
 
     @property
     def centers_prox(self):
@@ -626,6 +722,19 @@ class EncodermapSPREAnalysis:
             time = get_iso_time(csv)
 
         df_comp = pd.read_csv(csv, index_col=0)
+
+        # refiddle some columns
+        residues = get_column_names_from_pdb(return_residues=True)
+        index = []
+        for type_ in ['sPRE', '15N_relax_600', '15N_relax_800']:
+            for pos in ['proximal', 'distal']:
+                for r in residues:
+                    index.append(f"{pos} {r} {type_}")
+        col_diffs = list(set(df_comp.columns) - set(index))
+        df_comp = df_comp[col_diffs + index]
+
+        ensure_thr9_is_nonzero(df_comp)
+
         if not 'ubq_site' in df_comp.keys():
             df_comp['ubq_site'] = df_comp['traj_file'].map(get_ubq_site)
         df_comp['ubq_site'] = df_comp['ubq_site'].str.lower()
@@ -1068,7 +1177,27 @@ class EncodermapSPREAnalysis:
         print(exp)
         print(sim)
 
-    def add_centroids_to_df(self, overwrite=False, overwrite_rows=False, testing=False):
+    def load_and_overwrite_sub_dfs_for_saving(self):
+        """The initial add_centroids_to_df seems to have killed THR9. How could this happen?"""
+        for ubq_num, ubq_site in enumerate(self.ubq_sites):
+            csv_file = f'/mnt/data/kevin/xplor_analysis_files/sub_df_for_saving_{ubq_site}.csv'
+            sub_df = pd.read_csv(csv_file, index_col=0)
+            try:
+                ensure_thr9_is_nonzero(sub_df)
+            except THR9MissingException:
+                pass
+            else:
+                print(f"Seems like the file {csv_file} already has distal THR9 in it. I am not going to touch it.")
+                continue
+            ensure_thr9_is_nonzero(self.aa_df)
+            new_sub_df = self.aa_df[self.aa_df['ubq_site'] == ubq_site][self.aa_df.columns[self.aa_df.columns.str.contains('prox|dist')]].copy()
+            assert sub_df.shape[0] == new_sub_df.shape[0]
+            sub_df.update(new_sub_df, overwrite=True)
+            ensure_thr9_is_nonzero(sub_df)
+            sub_df.to_csv(csv_file)
+
+    def add_centroids_to_df(self, overwrite=False, overwrite_sub_dfs=False, overwrite_rows=False, testing=False):
+        ensure_thr9_is_nonzero(self.aa_df)
         if 'rmsd_centroid' in self.aa_df and 'geom_centroid' in self.aa_df and not overwrite:
             print(pd.value_counts(self.aa_df['geom_centroid']))
             print("Centroids already there")
@@ -1077,8 +1206,9 @@ class EncodermapSPREAnalysis:
             sub_dfs = []
             for ubq_num, ubq_site in enumerate(self.ubq_sites):
                 self.ubq_sites = [ubq_site]
-                if not os.path.isfile(f'/mnt/data/kevin/xplor_analysis_files/sub_df_for_saving_{ubq_site}.csv') or overwrite:
+                if not os.path.isfile(f'/mnt/data/kevin/xplor_analysis_files/sub_df_for_saving_{ubq_site}.csv') or overwrite_sub_dfs:
                     sub_df = self.aa_df[self.aa_df['ubq_site'] == ubq_site]
+                    ensure_thr9_is_nonzero(sub_df)
                     sub_df['geom_centroid'] = -1
                     sub_df['20_selected_for_rendering'] = -1
                     sub_df['rmsd_centroid'] = -1
@@ -1087,6 +1217,8 @@ class EncodermapSPREAnalysis:
                     sub_df['internal_rmsd'] = 0.0
                 else:
                     sub_df = pd.read_csv(f'/mnt/data/kevin/xplor_analysis_files/sub_df_for_saving_{ubq_site}.csv', index_col=0)
+                    ensure_thr9_is_nonzero(sub_df)
+                    assert 'internal_rmsd' in sub_df
                 if testing:
                     if ubq_site != 'k6':
                         break
@@ -1170,7 +1302,10 @@ class EncodermapSPREAnalysis:
                     cg = np.load(os.path.join(self.analysis_dir, f'cluster_membership_cg_{ubq_site}.npy'))
                     n_aa_in_cluster = len(np.where(aa == cluster_num)[0])
                     n_cg_in_cluster = len(np.where(cg == cluster_num)[0]) # was missing the [0]
-                    percent = n_aa_in_cluster / n_cg_in_cluster * 100
+                    if n_cg_in_cluster == 0:
+                        percent = 100.
+                    else:
+                        percent = n_aa_in_cluster / n_cg_in_cluster * 100
                     ensemble_percent = (n_aa_in_cluster + n_cg_in_cluster) / (len(aa) + len(cg)) * 100
                     del aa
                     del cg
@@ -1209,10 +1344,26 @@ class EncodermapSPREAnalysis:
                 assert 1 in new_df[new_df['ubq_site'] == ubq_site]['geom_centroid'].unique()
                 assert 1 in new_df[new_df['ubq_site'] == ubq_site]['rmsd_centroid'].unique()
                 assert pd.value_counts(new_df['geom_centroid'])[2] == 3
+                assert pd.value_counts(new_df['geom_centroid'])[2] == 3
                 assert pd.value_counts(new_df['rmsd_centroid'])[2] == 3
                 assert 'internal_rmsd' in new_df
                 if not testing:
                     self.aa_df = new_df
+
+                    residues = get_column_names_from_pdb(return_residues=True)
+                    index = []
+                    for pos in ['proximal', 'distal']:
+                        for r in residues:
+                            index.append(f"normalized {pos} {r} sPRE")
+                    for type_ in ['sPRE', '15N_relax_600', '15N_relax_800']:
+                        for pos in ['proximal', 'distal']:
+                            for r in residues:
+                                index.append(f"{pos} {r} {type_}")
+                    for pos in ['prox', 'dist']:
+                        for r in residues:
+                            index.append(f"RWMD {pos} {r}")
+                    col_diffs = list(set(self.aa_df.columns) - set(index))
+                    self.aa_df = self.aa_df[col_diffs + index]
         finally:
             self.ubq_sites = copied_ubq_sites
             if hasattr(self, 'trajs'): del self.trajs
@@ -1223,8 +1374,10 @@ class EncodermapSPREAnalysis:
             if hasattr(self, 'aa_references'): del self.aa_references
             if hasattr(self, 'cg_references'): del self.cg_references
 
-        self.aa_df.to_csv(self.large_df_file)
+        if overwrite:
+            self.aa_df.to_csv(self.large_df_file)
         self.check_normalization()
+        ensure_thr9_is_nonzero(self.aa_df)
 
     def fix_broken_pdbs(self):
         for ubq_num, ubq_site in enumerate(self.ubq_sites):
@@ -1283,12 +1436,14 @@ class EncodermapSPREAnalysis:
         """
         if hasattr(self, 'aa_df') and not overwrite:
             print("everything already loaded.")
+            ensure_thr9_is_nonzero(self.aa_df)
             return
 
         if os.path.isfile(self.large_df_file) and not overwrite:
             self.aa_df = pd.read_csv(self.large_df_file, index_col=0)
         else:
             copied_ubq_sites = copy.deepcopy(self.ubq_sites)
+            print(f"Iterating over ubq_sites: {copied_ubq_sites}.")
             try:
                 sub_dfs = []
                 for ubq_num, ubq_site in enumerate(copied_ubq_sites):
@@ -1326,6 +1481,7 @@ class EncodermapSPREAnalysis:
 
                     print(f"For ubq_site {ubq_site} df from all atoms is {df.shape[0] - sub_df.shape[0]} longer than df with sPRE_values")
                     sub_df = pd.merge(sub_df, df, how='inner')
+                    print(f"At ubq_site {ubq_site}, sub_df has ubq_sites: {sub_df['ubq_site'].unique()}.")
                     sub_dfs.append(sub_df)
 
                     # delete all unwanted attributes
@@ -1338,9 +1494,13 @@ class EncodermapSPREAnalysis:
                     del self.cg_references[ubq_site]
                     del self.aa_dists[ubq_site]
                     del self.cg_dists[ubq_site]
-
-                self.aa_df = pd.concat(sub_dfs, ignore_index=True)
-                self.aa_df = normalize_sPRE(self.aa_df, self.df_obs)
+                else:
+                    self.ubq_sites = copied_ubq_sites
+                self.aa_df = pd.concat(sub_dfs, ignore_index=True, axis='rows')
+                a = set(self.aa_df['ubq_site'])
+                b = set(self.ubq_sites)
+                assert a == b
+                self.aa_df, _, __ = normalize_sPRE(self.aa_df, self.df_obs, print_factors=True)
                 self.aa_df.to_csv(self.large_df_file)
 
                 del self.trajs
@@ -1356,7 +1516,10 @@ class EncodermapSPREAnalysis:
             finally:
                 self.ubq_sites = copied_ubq_sites
 
+        ensure_thr9_is_nonzero(self.aa_df)
+
     def add_count_ids(self, overwrite=False):
+        ensure_thr9_is_nonzero(self.aa_df)
         if not 'count_id' in self.aa_df or overwrite:
             add_dict = {}
             for ubq_num, ubq_site in enumerate(self.ubq_sites):
@@ -1379,8 +1542,8 @@ class EncodermapSPREAnalysis:
                 return add_dict[row['ubq_site']][int(row['cluster_membership'])]
 
             self.aa_df['count_id'] = self.aa_df.apply(add_count_ids, axis=1)
-            df_file = '/mnt/data/kevin/xplor_analysis_files/lowd_and_xplor_df.csv'
-            self.aa_df.to_csv(df_file)
+            self.aa_df.to_csv(self.large_df_file)
+        ensure_thr9_is_nonzero(self.aa_df)
 
     def analyze(self, **overwrite_dict):
         """Start the analysis
@@ -1525,7 +1688,7 @@ class EncodermapSPREAnalysis:
         aa_df = aa_df.loc[:, ~aa_df.columns.str.contains('^Unnamed')]
 
         self.aa_df = aa_df
-        self.aa_df, self.centers_prox, self.centers_dist = normalize_sPRE(aa_df, self.df_obs)
+        self.aa_df, self._centers_prox, self._centers_dist = normalize_sPRE(aa_df, self.df_obs)
         # self.aa_df.to_csv(self.large_df_file)
 
     def check_normalization(self, already_checked_approving_reassurance=False):
@@ -1543,8 +1706,8 @@ class EncodermapSPREAnalysis:
                 non_norm_cols = [c for c in sub_df.columns if 'sPRE' in c and check in c and 'norm' not in c]
                 norm_cols = [c for c in sub_df.columns if 'sPRE' in c and check in c and 'norm' in c]
 
-                non_norm_values = sub_df[non_norm_cols].values
-                norm_values = sub_df[norm_cols].values
+                non_norm_values = sub_df[non_norm_cols]
+                norm_values = sub_df[norm_cols]
 
                 if non_norm_values.shape != norm_values.shape:
                     print(f"The shapes of norm {norm_values.shape} does not match the shape of non_norm {non_norm_values.shape}. I will attempt to redo the normalization.")
@@ -1574,8 +1737,13 @@ class EncodermapSPREAnalysis:
                     if np.isclose(factor_is, factor_should_be):
                         print(f"{ubq_site} {check} was correctly normalized.")
                     else:
-                        print(factor_is, factor_should_be)
-                        raise Exception("After two calls to reassign df_comp I could not fix the factors.")
+                        msg = (f"After two calls to self.reassign_df_comp I could "
+                               f"not fix the factors for {ubq_site} {check}. The current "
+                               f"factor is calculated by dividing the norm_values by the non_norm values "
+                               f"it's value is {factor_is}. However, the @property norm_factors gives me "
+                               f"a norm factor if {factor_should_be}. Maybe deleting the file due to some "
+                               f"old pandas-numpy mishaps solves this issue.")
+                        raise Exception(msg)
 
     def run_per_cluster_analysis(self, overwrite=False, overwrite_df_creation=False,
                                  overwrite_polar_plots=False, overwrite_pdb_files=False,
@@ -1583,11 +1751,7 @@ class EncodermapSPREAnalysis:
                                  overwrite_final_combination=False, reduced=True,
                                  overwrite_final_correlation=False,
                                  coeff_threshold=0.1):
-        """Do the following steps for the clusters:
-
-        * Render wireframe
-
-        """
+        ensure_thr9_is_nonzero(self.aa_df)
         df_file = '/home/kevin/projects/tobias_schneider/new_images/clusters.h5'
 
         if not hasattr(self, 'aa'):
@@ -1612,23 +1776,34 @@ class EncodermapSPREAnalysis:
                                                                                           self.df_obs,
                                                                                           self.fast_exchangers,
                                                                                           ubq_site=ubq_site,
-                                                                                          return_means=True)
+                                                                                          return_means=True,
+                                                                                          return_pandas=True)
 
                 # check whether normalizations still hold true
                 self.check_normalization()
 
                 assert np.isclose(np.sum(linear_combination), 1)
 
+                # multiply
+                cols = cluster_means.columns[cluster_means.columns.str.contains('sPRE')]
+                test = np.sum(linear_combination * cluster_means[cols].values.T, 1)
+                combination = cluster_means.copy()
+                combination[cols] = combination[cols].T.dot(linear_combination)
+                combination = combination.iloc[0]
+                assert np.allclose(combination[cols].values.astype(float), test)
+
                 # get some values true for all clusters and start the dict with data
                 aa_cluster_nums = np.unique(sub_df['cluster_membership'])
-                exp_values = self.df_obs[ubq_site][self.df_obs[ubq_site].index.str.contains('sPRE')].values
-                mean_abs_diff_full_combination = np.mean(np.abs(np.sum(linear_combination * cluster_means.T, 1) - exp_values))
+                exp_values = self.df_obs[ubq_site][self.df_obs[ubq_site].index.str.contains('sPRE')]
+                # mean_abs_diff_full_combination = np.mean(np.abs(np.sum(linear_combination * cluster_means.T, 1) - exp_values))
+                mean_abs_diff_full_combination = get_mean_abs_diff(combination, exp_values, fast_exchangers=self.fast_exchangers)
 
                 df_data = {'cluster id': [], 'N frames': [], 'ensemble %': [],
                            'ubq site': [], 'aa %': [], 'internal RMSD': [], 'coefficient': [],
                            'mean abs diff to exp w/ coeff': [], 'mean abs diff to exp w/o coeff': []}
 
-                for cluster_num, (coefficient, cluster_mean) in enumerate(zip(linear_combination, cluster_means)):
+                for cluster_num, cluster_mean in cluster_means.iterrows():
+                    coefficient = linear_combination[cluster_num]
                     if cluster_num == -1:
                         continue
                     if cluster_num not in aa_cluster_nums:
@@ -1651,15 +1826,19 @@ class EncodermapSPREAnalysis:
                     internal_rmsd = sub_df[sub_df['rmsd_centroid'] == cluster_num]['internal_rmsd']
 
                     # get the mean abs diff to the linear combination
-                    mean_abs_diff = np.mean(np.abs(coefficient * cluster_mean - exp_values))
-                    mean_abs_diff_no_coeff = np.mean(np.abs(cluster_mean - exp_values))
+                    # mean_abs_diff = np.mean(np.abs(coefficient * cluster_mean - exp_values))
+                    combination = cluster_mean.copy()
+                    combination[cols] = coefficient * combination[cols]
+                    mean_abs_diff = get_mean_abs_diff(combination, exp_values, fast_exchangers=self.fast_exchangers)
+                    # mean_abs_diff_no_coeff = np.mean(np.abs(cluster_mean - exp_values))
+                    mean_abs_diff_no_coeff = get_mean_abs_diff(cluster_mean, exp_values, fast_exchangers=self.fast_exchangers)
 
                     df_data['cluster id'].append(cluster_num)
                     df_data['N frames'].append(points_in_cluster)
                     df_data['ensemble %'].append(ensemble_percent)
                     df_data['ubq site'].append(ubq_site)
                     df_data['aa %'].append(aa_percent)
-                    df_data['internal RMSD'].append(internal_rmsd)
+                    df_data['internal RMSD'].append(internal_rmsd.values[0])
                     df_data['coefficient'].append(coefficient)
                     df_data['mean abs diff to exp w/ coeff'].append(mean_abs_diff)
                     df_data['mean abs diff to exp w/o coeff'].append(mean_abs_diff_no_coeff)
@@ -1669,6 +1848,7 @@ class EncodermapSPREAnalysis:
                     df = pd.concat([df, pd.DataFrame(df_data)], ignore_index=True)
                 metadata[f'mean_abs_diff_full_combination_{ubq_site}'] = mean_abs_diff_full_combination
             else:
+                print(f"Storing df at {df_file}")
                 h5store(df_file, df, **metadata)
 
         if not hasattr(self, 'polar_coordinates_aa'):
@@ -1817,10 +1997,11 @@ class EncodermapSPREAnalysis:
             exp_value = self.df_obs[ubq_site][self.df_obs[ubq_site].index.str.contains('sPRE')].values
             if not os.path.isfile(final_combination_image) or overwrite_final_combination:
                 plt.close('all')
+                os.makedirs(os.path.split(final_correlation_image_all)[0], exist_ok=True)
                 sim_value = np.sum(coefficients_best_clusters * cluster_means[where].T, 1)
                 fig, (ax1, ax2,) = plt.subplots(nrows=2, figsize=(20, 10))
 
-                from xplor.nmr_plot import plot_line_data, plot_hatched_bars
+                from xplor.nmr_plot import plot_line_data, plot_hatched_bars, add_sequence_to_xaxis, color_labels
 
                 (ax1, ax2) = plot_line_data((ax1, ax2), self.df_obs, {'rows': 'sPRE', 'cols': ubq_site})
                 (ax1, ax2) = plot_hatched_bars((ax1, ax2), self.fast_exchangers, {'cols': 'k6'}, color='k')
@@ -1836,7 +2017,8 @@ class EncodermapSPREAnalysis:
                         ax2.plot(dist, c=color)
                         # old mean abs diff
                         # mean_abs_diff = sub_df['mean abs diff to exp'][cluster_id]
-                        mean_abs_diff = np.mean(np.abs(sim_value - cluster_means[cluster_id])[~ self.fast_exchangers[ubq_site]])
+                        # mean_abs_diff = np.mean(np.abs(sim_value - cluster_means[cluster_id])[~ self.fast_exchangers[ubq_site]])
+                        mean_abs_diff = get_mean_abs_diff()
                         print(count_id, mean_abs_diff)
                         # ax1.text(0.95, hpos, f"mean abs diff exp/sim cluster {count_id} = {mean_abs_diff:.1f}",
                         #      transform=ax1.transAxes, ha='right', va='center')
@@ -1849,7 +2031,8 @@ class EncodermapSPREAnalysis:
                     ax = color_labels(ax, positions=centers)
                     ax.set_ylabel(r'sPRE in $\mathrm{mM^{-1}ms^{-1}}$')
 
-                mean_abs_diff = np.mean(np.abs(sim_value - exp_value)[~ self.fast_exchangers[ubq_site]])
+                # mean_abs_diff = np.mean(np.abs(sim_value - exp_value)[~ self.fast_exchangers[ubq_site]])
+                mean_abs_diff = get_mean_abs_diff(sim_value, exp_value)
                 # ax1.text(0.95, 0.80, f"mean abs diff exp/sim {cluster_combination_str_no_underscore} = {mean_abs_diff:.1f}",
                 #          transform=ax1.transAxes, ha='right', va='center')
                 
@@ -1870,7 +2053,7 @@ class EncodermapSPREAnalysis:
                 plt.close('all')
                 fig, (ax1, ax2,) = plt.subplots(nrows=2, figsize=(20, 10))
 
-                from xplor.nmr_plot import plot_line_data, plot_hatched_bars
+                from xplor.nmr_plot import plot_line_data, plot_hatched_bars, add_sequence_to_xaxis
 
                 (ax1, ax2) = plot_line_data((ax1, ax2), self.df_obs, {'rows': 'sPRE', 'cols': ubq_site})
                 (ax1, ax2) = plot_hatched_bars((ax1, ax2), self.fast_exchangers, {'cols': 'k6'}, color='k')
@@ -1890,7 +2073,8 @@ class EncodermapSPREAnalysis:
                     index = index[index.str.contains('normalized')]
                 q1, median, q3 = self.aa_df[index].quantile([0.25, 0.5, 0.75], axis='rows').values
 
-                mean_abs_diff = np.mean(np.abs(median - exp_value))
+                # mean_abs_diff = np.mean(np.abs(median - exp_value))
+                mean_abs_diff = get_mean_abs_diff(median, exp_value)
                 # ax1.text(0.95, 0.80, f"mean abs diff exp/(median all sims) = {mean_abs_diff:.1f}",
                 #          transform=ax1.transAxes, ha='right', va='center')
 
@@ -1910,7 +2094,7 @@ class EncodermapSPREAnalysis:
                 plt.close('all')
                 fig, (ax1, ax2,) = plt.subplots(nrows=2, figsize=(20, 10))
 
-                from xplor.nmr_plot import plot_correlation_plot, plot_hatched_bars
+                from xplor.nmr_plot import plot_correlation_plot, plot_hatched_bars, add_sequence_to_xaxis
 
                 where = np.where(sub_df['coefficient'] > coeff_threshold)[0]
                 cluster_ids = sub_df['cluster id'].values
@@ -2314,9 +2498,10 @@ class EncodermapSPREAnalysis:
                 ensemble_percent = sub_df[sub_df['rmsd_centroid'] == cluster_id]['ensemble_percent'].values[0]
                 print(aa_percent, cg_percent, ensemble_percent)
                 coeff = str(np.format_float_scientific(linear, 2))
-                mean_abs_diff = np.round(np.mean(np.abs(mean[~fast_exchange] - exp_values[~fast_exchange])), 2)
+                # mean_abs_diff = np.round(np.mean(np.abs(mean[~fast_exchange] - exp_values[~fast_exchange])), 2)
+                mean_abs_diff = get_mean_abs_diff(mean, exp_values)
                 print(f"Cluster {count_id} (cluster_id {cluster_id}) consists of {aa_percent:.2f}% aa structures and {cg_percent:.2f}% of cg structures."
-                      f"The mean abs difference between sim and exp is {mean_abs_diff}."
+                      f"The mean abs difference between sim and exp is {mean_abs_diff:.2f}."
                       f"The coefficient in the linear combination is {coeff}")
 
                 # rmsd centroid
@@ -2682,7 +2867,7 @@ class EncodermapSPREAnalysis:
         else:
             ax_pairs = [[sPRE_prox_ax, sPRE_dist_ax], [N15_prox_ax, N15_dist_ax], [sPRE_vs_prox_ax, sPRE_vs_dist_ax]]
 
-        from xplor.nmr_plot import plot_line_data, plot_hatched_bars, plot_confidence_intervals, try_to_plot_15N, fake_legend
+        from xplor.nmr_plot import plot_line_data, plot_hatched_bars, plot_confidence_intervals, try_to_plot_15N, fake_legend, add_sequence_to_xaxis
 
         for i, ax_pair in enumerate(ax_pairs):
             if ax_pair[0] is None and ax_pair[1] is None:
@@ -2776,19 +2961,22 @@ class EncodermapSPREAnalysis:
         # plt.savefig(out_file.replace('.png', '.pdf'))
 
     def fitness_assessment(self, overwrite=False, soft_overwrite=False,
-                           parallel=True):
+                           parallel=True, n_cpus=60):
         print("Manually setting cluster exclusions to exclude no clusters.")
+        if n_cpus > mp_cpu_count():
+            raise Exception("Please select fewer cpus for paralellization.")
         self.cluster_exclusions = {ubq_site: [] for ubq_site in self.ubq_sites}
         if not parallel:
-            json_savefile = os.path.join(self.analysis_dir, f'quality_factors_with_fixed_normalization.json')
+            json_savefile = os.path.join(self.analysis_dir, f'quality_factors_with_new_psol.json')
         else:
             def parallel_fitness_assesment(cluster_nums, fast_exch):
                 solv = make_linear_combination_from_clusters(None, self.aa_df, self.df_obs,
                                                              self.fast_exchangers, ubq_site, cluster_nums=cluster_nums)
                 result = np.sum(solv * np.vstack([cluster_means[c] for c in cluster_nums]).T, 1)
-                diff = float(np.mean(np.abs(result[~fast_exch] - obs[~fast_exch])))
+                # diff = float(np.mean(np.abs(result[~fast_exch] - obs[~fast_exch])))
+                diff = get_mean_abs_diff(result, obs)
                 return ', '.join([str(c) for c in cluster_nums]), diff
-            json_savefile = os.path.join(self.analysis_dir, f'quality_factors_with_fixed_normalization_parallel.json')
+            json_savefile = os.path.join(self.analysis_dir, f'quality_factors_with_new_psol_parallel.json')
         self.quality_factor_means = {ubq_site: [] for ubq_site in self.ubq_sites}
         if not os.path.isfile(json_savefile) or (overwrite and not soft_overwrite):
             self.all_quality_factors = {ubq_site: {} for ubq_site in self.ubq_sites}
@@ -2861,7 +3049,8 @@ class EncodermapSPREAnalysis:
                             solv = make_linear_combination_from_clusters(None, self.aa_df, self.df_obs,
                                                                          self.fast_exchangers, ubq_site, cluster_nums=combination)
                             result = np.sum(solv * np.vstack([cluster_means[c] for c in combination]).T, 1)
-                            diff = float(np.mean(np.abs(result[~fast_exchange] - obs[~fast_exchange])))
+                            # diff = float(np.mean(np.abs(result[~fast_exchange] - obs[~fast_exchange])))
+                            diff = get_mean_abs_diff(result, obs)
                             self.all_quality_factors[ubq_site][str(no_of_considered_clusters)][', '.join([str(c) for c in combination])] = diff
                         else:
                             print(f"Last combination: {combination}")
@@ -2871,7 +3060,7 @@ class EncodermapSPREAnalysis:
                         cluster_exclusions_filter_func = lambda x: not np.any([c in self.cluster_exclusions[ubq_site] for c in x])
                         combinations = filter(not_aa_filter_func, combinations)
                         combinations = filter(cluster_exclusions_filter_func, combinations)
-                        results = Parallel(n_jobs=mp_cpu_count())(delayed(parallel_fitness_assesment)(c, fast_exchange) for c in combinations)
+                        results = Parallel(n_jobs=n_cpus)(delayed(parallel_fitness_assesment)(c, fast_exchange) for c in combinations)
 
                         # unpack results
                         results_dict = {k: v for k, v in results}
@@ -2885,9 +3074,9 @@ class EncodermapSPREAnalysis:
 
         # load the data
         if not parallel:
-            json_savefile = os.path.join(self.analysis_dir, f'quality_factors_with_fixed_normalization.json')
+            json_savefile = os.path.join(self.analysis_dir, f'quality_factors_with_new_psol.json')
         else:
-            json_savefile = os.path.join(self.analysis_dir, f'quality_factors_with_fixed_normalization_parallel.json')
+            json_savefile = os.path.join(self.analysis_dir, f'quality_factors_with_new_psol_parallel.json')
 
         self.quality_factor_means = {ubq_site: [] for ubq_site in self.ubq_sites}
         with open(json_savefile, 'r') as f:

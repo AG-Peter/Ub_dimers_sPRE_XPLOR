@@ -65,32 +65,51 @@ for ubq_site in ubq_sites:
 import xplor
 if not 'analysis' in globals():
     analysis = xplor.functions.EncodermapSPREAnalysis(['k6', 'k29', 'k33'])
-    analysis.plot_fitness_assessment()
-analysis.find_lowest_diffs_in_all_quality_factors(overwrite=True, which_clusters=None)
-analysis.get_values_of_combinations()
+    analysis.df_comp = 'new_psol'
+    analysis.ubq_sites = ['k6', 'k29', 'k33']
+    analysis.make_large_df(False)
+    analysis.add_count_ids(False)
+    # analysis.fitness_assessment(soft_overwrite=True)
+    # analysis.plot_fitness_assessment()
+# analysis.find_lowest_diffs_in_all_quality_factors(overwrite=True, which_clusters=None)
+# analysis.get_values_of_combinations()
 
+# %% what columns does aa_df have:
+cols = analysis.aa_df.columns[~ (analysis.aa_df.columns.str.contains('prox|dist'))]
+# print(cols)
+traj_files = analysis.aa_df[analysis.aa_df['ubq_site'].str.lower().str.contains('k33')]['traj_file'].unique().tolist()
+# print(traj_files)
+print(analysis.aa_df['distal THR9 sPRE'])
 
-# %% develop an analysis function
+# %% manual save
+analysis.aa_df.to_csv('/home/kevin/projects/tobias_schneider/aa_df_sPRE_manual_with_new_psol.csv')
+analysis.aa_df.to_csv(analysis.large_df_file)
+
+ # %% develop an analysis function
 import xplor
-# if not 'analysis' in globals():
-analysis = xplor.functions.EncodermapSPREAnalysis(['k6', 'k29', 'k33'])
-analysis.df_comp = 'new_psol'
-analysis.make_large_df(False)
-analysis.add_count_ids(False)
-analysis.fitness_assessment(soft_overwrite=True)
-analysis.fix_broken_pdbs()
-analysis.add_centroids_to_df(testing=False)
-analysis.check_normalization()
-analysis.run_per_cluster_analysis(overwrite_final_correlation=True,
+if not 'analysis' in globals():
+    analysis = xplor.functions.EncodermapSPREAnalysis(['k6', 'k29', 'k33'])
+    analysis.df_comp = 'new_psol'
+    analysis.ubq_sites = ['k6', 'k29', 'k33']
+    analysis.make_large_df(False)
+    analysis.add_count_ids(False)
+    analysis.load_and_overwrite_sub_dfs_for_saving()
+    analysis.add_centroids_to_df(overwrite=False, overwrite_sub_dfs=False, testing=False)
+analysis.run_per_cluster_analysis(overwrite=True,
+                                  overwrite_final_correlation=True,
                                   overwrite_final_combination=True)
-analysis.get_mixed_correlation_plots(overwrite=True, exclude_0_and_nan=False)
+raise Exception("STOP")
+analysis.get_mixed_correlation_plots(overwrite=True, exclude_0_and_nan=True)
 analysis.ubq_sites = ['k6', 'k29', 'k33']
+print("The only_needed_counts redo counts uses the same clusters.")
+raise Exception("Check whether THR9 is there")
 analysis.cluster_analysis(overwrite=True,
                           save_pdb_only_needed_count_ids={'k6': [0, 1, 2, 11],
                                                           'k29': [0, 11, 12],
                                                           'k33': [0, 1, 9, 19]})
 analysis.stack_all_clusters()
 analysis.prepare_csv_files(check_empty_and_zero_columns=False)
+analysis.fix_broken_pdbs()
 # analysis.train_encodermap_sPRE(True)
 # analysis.analyze_mean_abs_diff_all()
 
@@ -148,6 +167,80 @@ for col in series.index:
     if 'sPRE' in col:
         print(col, series[col])
 
+# %% Why does the new_psol data have bad coefficients?
+ubq_site = 'k6'
+import pandas as pd
+import numpy as np
+from xplor.functions.functions import make_linear_combination_from_clusters
+from xplor.functions.analysis import h5load
+from xplor.proteins.proteins import get_column_names_from_pdb
+from xplor.functions.parse_input_files.parse_input_files import get_fast_exchangers
+fast_exchangers = get_fast_exchangers(['k6', 'k29', 'k33'])
+
+# check how the all_frames dataframe can be transformed into the for_saving dataframes
+# find the data that produces
+# if 'find_this' not in globals():
+#     find_this = pd.read_csv(f'/mnt/data/kevin/xplor_analysis_files/sub_df_for_saving_{ubq_site}.csv.back_before_new_psol')
+# print(find_this.columns.tolist())
+#
+# raise Exception("STOP")
+
+# first try the old data
+from xplor.functions.parse_input_files.parse_input_files_legacy import get_observed_df as get_observed_df_legacy
+df_obs_old = get_observed_df_legacy(['k6', 'k29', 'k33'])
+if 'aa_df_old' not in globals():
+    sub_dfs = [pd.read_csv(f'/mnt/data/kevin/xplor_analysis_files/sub_df_for_saving_{i}.csv.back_before_new_psol') for i in ['k6', 'k29', 'k33']]
+    aa_df_old = pd.concat(sub_dfs)
+    # aa_df_old = pd.read_csv("/mnt/data/kevin/xplor_analysis_files/lowd_and_xplor_df.csv.back")
+df_sim_old = aa_df_old[aa_df_old['ubq_site'] == ubq_site]
+assert df_sim_old['distal THR9 sPRE'].mean() == 0, print(df_sim_old['distal THR9 sPRE'].mean())
+coefficients = make_linear_combination_from_clusters(None, df_sim_old, df_obs_old,
+                                                     fast_exchangers, ubq_site=ubq_site)
+with pd.HDFStore('/home/kevin/projects/tobias_schneider/new_images/clusters.h5') as store:
+    clu_df, _ = h5load(store)
+clu_df = clu_df[clu_df['ubq site'] == ubq_site][['cluster id', 'N frames']]
+clu_df = clu_df.sort_values('N frames', ascending=False)
+clu_df['count id'] = range(len(clu_df))
+print('old data and old obs', np.round(coefficients, 2)[clu_df['cluster id']])
+
+# try the old data with manual fixing columns
+coefficients = make_linear_combination_from_clusters(None, df_sim_old, df_obs_old,
+                                                     fast_exchangers, ubq_site=ubq_site,
+                                                     manual_fix_columns=True)
+print('old data and old obs with manual fixed columns', np.round(coefficients, 2)[clu_df['cluster id']])
+
+# try the new data with the old df_obs
+if not 'aa_df_new' in globals():
+    aa_df_new = pd.read_csv('/home/kevin/projects/tobias_schneider/aa_df_sPRE_manual_with_new_psol.csv')
+df_sim_new = aa_df_new[aa_df_new['ubq_site'] == ubq_site]
+coefficients = make_linear_combination_from_clusters(None, df_sim_new, df_obs_old,
+                                                     fast_exchangers, ubq_site=ubq_site)
+print('new data old obs', np.round(coefficients, 2)[clu_df['cluster id']])
+
+# try the new data with the new df_obs
+from xplor.functions.parse_input_files.parse_input_files import get_observed_df
+df_obs_new = get_observed_df(['k6', 'k29', 'k33'])
+coefficients = make_linear_combination_from_clusters(None, df_sim_new, df_obs_new,
+                                                     fast_exchangers, ubq_site=ubq_site)
+print('new data new obs', np.round(coefficients, 2)[clu_df['cluster id']])
+
+# exclude fast exchangers and 0/nan values
+coefficients = make_linear_combination_from_clusters(None, df_sim_new, df_obs_new,
+                                                     fast_exchangers, ubq_site=ubq_site,
+                                                     exclude_non_exp_values=True)
+print('new data new obs exclude zeros', np.round(coefficients, 2)[clu_df['cluster id']])
+
+# compare the old and new values. How much do they differ on average
+residues = get_column_names_from_pdb(return_residues=True)
+index = []
+for pos in ['proximal', 'distal']:
+    for r in residues:
+        index.append(f"{pos} {r} sPRE")
+old = df_sim_old[index]
+cols = old.columns[old.mean('rows') != 0]
+diff = (old[cols] - df_sim_new[cols]).mean(None).mean(None)
+print(f"Average diff between old and new is {diff}")
+
 # %% Compare exp and sim
 analysis.compare_exp_sim('k6', 'proximal PHE4 sPRE')
 
@@ -160,15 +253,6 @@ analysis.write_clusters(f'/home/kevin/projects/tobias_schneider/cluster_analysis
                         pdb=None, max_frames=200)
 
 
-# %%
-import pandas as pd
-analysis.aa_df.to_csv(analysis.large_df_file)
-
-# %%
-print([k for k in analysis.aa_df.keys() if 'prox' not in k and 'dist' not in k])
-
-# %% old cluster analysis
-analysis.make_large_df(overwrite=True)
 
 
 # %% new per cluster analysis

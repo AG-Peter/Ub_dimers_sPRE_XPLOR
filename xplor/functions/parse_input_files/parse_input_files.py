@@ -323,64 +323,14 @@ def get_observed_df(ubq_sites, sPRE='data/spre_and_relaxation_data_k6_k29_k33/di
         dup = u[c > 1]
         assert dup.size == 0
 
-        # find duplicates?
         dfs_out.append(df)
     df2 = pd.concat(dfs_out, axis='columns')
 
     # concat
     df = pd.concat([df1, df2], axis='rows')
-    # df = df.reindex(index, fill_value=0)
+    df = df.reindex(index, fill_value=0)
     df = df.fillna(0)
-    print(df)
-    raise Exception("STOP")
-
-    for i, ubq_site in enumerate(ubq_sites):
-        df = make_sPRE_table(sPRE.replace('ubq_site', ubq_site))
-        for position in ['proximal', 'distal']:
-            for residue in residues:
-                resSeq = int(residue[3:])
-                if i == 0:
-                    labels.append(f"{position} {residue} sPRE")
-                if position == 'distal':
-                    resSeq += 76
-                if resSeq not in df['resSeq'].values:
-                    df_obs[i].append(0.0)
-                    continue
-                idx = (df['position'] == position) & (df['resSeq'] == resSeq)
-                assert idx.sum() == 1
-                if idx.any():
-                    value = float(df[idx]['sPRE'])
-                    df_obs[i].append(value)
-                else:
-                    print(mhz, position, residue)
-                    raise Exception("STOP")
-
-    # proximal MET1 15N_relax_600
-    for i, ubq_site in enumerate(ubq_sites):
-        df = make_15_N_table(relax.replace('ubq_site', ubq_site))
-        for mhz, name in zip([600, 800], ['15N_relax_600', '15N_relax_800']):
-            for position in ['proximal', 'distal']:
-                for residue in residues:
-                    resSeq = int(residue[3:])
-                    if i == 0:
-                        labels.append(f"{position} {residue} {name}")
-                    if position == 'distal':
-                        resSeq += 76
-                    if resSeq not in df['resSeq'].values:
-                        df_obs[i].append(0.0)
-                        continue
-                    idx = (df['freq of spectrometer (MHz)'] == mhz) & (df['resSeq'] == resSeq)
-                    assert idx.sum() == 1
-                    if idx.any():
-                        value = float(df[idx]['R2 rate (1/s)'] / df[idx]['R1 rate (1/s)'])
-                        df_obs[i].append(value)
-                    else:
-                        print(mhz, position, residue)
-                        raise Exception("STOP")
-    df_obs = pd.DataFrame(data=np.array(df_obs).T, index=labels, columns=ubq_sites)
-    df_obs = df_obs.fillna(0)
-    df_obs = df_obs.reindex(index, fill_value=0)
-    return df_obs
+    return df
 
 
 def get_fast_exchangers(ubq_sites):
