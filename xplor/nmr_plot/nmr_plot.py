@@ -151,7 +151,7 @@ def _make_seq_annotation(traj, sequence_annotation_frame=0):
 
 
 def add_sequence_to_xaxis(ax, pdb_id='1UBQ', remove_solvent=True, sequence_annotation_frame=0,
-                          sequence_subsample=1, bottom_ax_size='7%', bottom_ax_pad='20%'):
+                          sequence_subsample=1, bottom_ax_size='7%', bottom_ax_pad='20%', xlim=None):
     import biotite.sequence.graphics as graphics
     from Bio.SeqUtils import seq3
 
@@ -179,6 +179,10 @@ def add_sequence_to_xaxis(ax, pdb_id='1UBQ', remove_solvent=True, sequence_annot
     ax.set_xticks(xticks)
     ax.set_xticklabels(xlabels, rotation=90)
     ax.set_xlim([0, len(fasta) - 1])
+
+
+    if xlim is not None:
+        seq_ax.set_xlim(xlim)
 
     return ax
 
@@ -233,7 +237,7 @@ def get_color(colorRGBA1, colorRGBA2):
     return (int(red), int(green), int(blue), int(alpha))
 
 def plot_confidence_intervals(axes, df, df_index, cmap='Blues', cbar=True,
-                              alpha=0.2, positions=None,
+                              alpha=0.2, positions=None, omit_nan=False,
                               trajs=None, cluster_num=None, cbar_axis=None,
                               with_outliers=True, outliers_offset=0.0):
     """Plots an envelope around min and max values.
@@ -276,10 +280,12 @@ def plot_confidence_intervals(axes, df, df_index, cmap='Blues', cbar=True,
     if cluster_num is not None and trajs is None:
         df = df[df['cluster_membership'] == cluster_num]
     if cluster_num is not None and trajs is not None:
-        df = df.iloc[df_indices]
-        assert len(df) == len(df_indices)
+        if df_index is not None:
+            df = df.iloc[df_indices]
+            assert len(df) == len(df_indices)
     else:
-        df = df[df['ubq_site'] == df_index['cols']]
+        if df_index is not None:
+            df = df[df['ubq_site'] == df_index['cols']]
     if df.isna().any(None):
         df = df.fillna(0)
     out = []
@@ -314,8 +320,18 @@ def plot_confidence_intervals(axes, df, df_index, cmap='Blues', cbar=True,
         q1[q1 < 0] = 0
         q3[q3 < 0] = 0
 
-        ax.fill_between(range(len(median)), min_, max_, color=cmap(0))
-        ax.fill_between(range(len(median)), q1, q3, color=cmap(1))
+        if not omit_nan:
+            ax.fill_between(range(len(median)), min_, max_, color=cmap(0))
+            ax.fill_between(range(len(median)), q1, q3, color=cmap(1))
+        else:
+            indices = np.arange(len(median))
+            chunks = np.split(indices, np.where(median == 0)[0][1:])
+            for index in chunks:
+                if len(index) == 1:
+                    continue
+                index = index[1:]
+                ax.fill_between(index, min_[index], max_[index], color=cmap(0))
+                ax.fill_between(index, q1[index], q3[index], color=cmap(1))
 
         if with_outliers:
             XX, YY = np.meshgrid(np.arange(outliers.shape[1]), np.arange(outliers.shape[0]))
@@ -338,7 +354,8 @@ def plot_confidence_intervals(axes, df, df_index, cmap='Blues', cbar=True,
                 cax = divider.append_axes('right', size='2%', pad=0.15)
                 cbar = plt.gcf().colorbar(sm, ticks=cmap_ticks, orientation='vertical', cax=cax, label="Quartile Range")
                 cax.set_yticklabels([r'$\mathrm{Q_{1/3} \mp IQR}$', 'IQR'])
-
+        if omit_nan:
+            median[median == 0] = np.nan
         ax.plot(median, color=plot_color)
         out.append(ax)
     if cbar:
@@ -398,20 +415,20 @@ def plot_single_struct_sPRE(axes, traj, factors, ubq_site, color, positions=None
 
 
 
-def try_to_plot_15N(axes, ubq_site, mhz=600, cmap='Blues', cbar=True, alpha=0.2,
+def try_to_plot_15N(axes, ubq_site, df=None, mhz=600, cmap='Blues', cbar=True, alpha=0.2,
                     positions=None, trajs=None, cluster_num=None,
                     cbar_axis=None, with_outliers=True, outliers_offset=0.0):
     if positions is None:
         positions = ['proximal', 'distal']
-
-    files = glob.glob('/home/kevin/projects/tobias_schneider/values_from_every_frame/from_package_with_conect/*.csv')
-    sorted_files = sorted(files, key=get_iso_time)
-    df = pd.read_csv(sorted_files[-1], index_col=0)
-    df = df.fillna(0)
-    axes, color = plot_confidence_intervals(axes, df, df_index={'rows': f'15N_relax_{mhz}', 'cols': ubq_site}, cmap=cmap,
-                                            cbar=cbar, alpha=alpha, positions=positions, trajs=trajs, cluster_num=cluster_num,
-                                            cbar_axis=cbar_axis, with_outliers=with_outliers, outliers_offset=outliers_offset)
-    return axes, color
+    if df is None:
+        files = glob.glob('/home/kevin/projects/tobias_schneider/values_from_every_frame/from_package_with_conect/*.csv')
+        sorted_files = sorted(files, key=get_iso_time)
+        df = pd.read_csv(sorted_files[-1], index_col=0)
+        df = df.fillna(0)
+    out = plot_confidence_intervals(axes, df, df_index={'rows': f'15N_relax_{mhz}', 'cols': ubq_site}, cmap=cmap, omit_nan=True,
+                                    cbar=cbar, alpha=alpha, positions=positions, trajs=trajs, cluster_num=cluster_num,
+                                    cbar_axis=cbar_axis, with_outliers=with_outliers, outliers_offset=outliers_offset)
+    return out
 
 
 def plot_minmax_envelope(axes, df, df_index, color='lightgrey', alpha=0.8, positions=None):

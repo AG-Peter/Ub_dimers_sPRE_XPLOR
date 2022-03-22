@@ -21,6 +21,7 @@ from simtk.openmm.app import PDBFile
 import builtins
 from scipy.optimize import minimize, NonlinearConstraint, Bounds, nnls
 from typing import Callable
+import collections.abc
 from ..misc import delete_old_csvs
 
 
@@ -49,6 +50,16 @@ OXT_MAPPING = {'O': 'OT1', 'OXT': 'OT2'}
 import os
 import builtins
 from io import StringIO
+
+
+def update_nested_dict(d, u):
+    for k, v in u.items():
+        if isinstance(v, collections.abc.Mapping):
+            d[k] = update_nested_dict(d.get(k, {}), v)
+        else:
+            d[k] = v
+    return d
+
 
 def _redefine_os_path_exists():
     orig_func = os.path.exists
@@ -515,7 +526,7 @@ def normalize_sPRE(df_comp, df_obs, kind='var', norm_res_count=10,
 
 
 def call_xplor_with_yaml(pdb_file, psf_file=None, yaml_file='', from_tmp=False,
-                         testing=False, fix_isopeptides=True, **kwargs):
+                         testing=False, fix_isopeptides=True, settings=None):
     """Calls the xplor script with values from a yaml file.
 
     Arguments for XPLOR can be provided by either specifying a yaml file, or
@@ -539,8 +550,10 @@ def call_xplor_with_yaml(pdb_file, psf_file=None, yaml_file='', from_tmp=False,
         psf_file (Union[str, None], optional): Provide the path to a psf file
             when setting `fix_isopeptides` True. Defaults to None and will
             raise an Error, if `fix_isopeptides` is set to True and `psf_file` is None.
-        **kwargs: Arbitrary keyword arguments. Keywords that are not flags
-            of the xplor/scripts/xplor_single_struct_script.py will be discarded.
+        settings (Optional[Union[Dict, None]], optional): A dictionary containing the same
+            keys as the defaults dictionaty loaded from the defaults.yaml file.
+            This dict is used to update the values in defaults.yaml (not change the file
+            itself) before proceeding.
 
     Returns:
         str: The string which the xplor/scripts/xplor_single_struct_script.py
@@ -554,9 +567,11 @@ def call_xplor_with_yaml(pdb_file, psf_file=None, yaml_file='', from_tmp=False,
         defaults = yaml.safe_load(stream)
 
     pdb_file = get_local_or_proj_file(pdb_file)
+    print(f"Calculating sPRE values for {pdb_file}.")
 
     # overwrite tbl files, if present
-    defaults.update((k, kwargs[k]) for k in set(kwargs).intersection(defaults))
+    if settings is not None:
+        defaults = update_nested_dict(defaults, settings)
 
     # get the datafiles
     for pot in ['psol', 'rrp600', 'rrp800']:
@@ -567,6 +582,7 @@ def call_xplor_with_yaml(pdb_file, psf_file=None, yaml_file='', from_tmp=False,
             elif not os.path.exists(filename) and 'empty' in filename:
                 raise NotImplementedError("Write a function to write an empty tbl file to /tmp and pass that")
             defaults[pot]['call_parameters']['restraints']['value'] = filename
+    print(f"Using the file {defaults['psol']['call_parameters']['restraints']['value']} as restraints for psol.")
 
     # make arguments out of them
     arguments = write_argparse_lines_from_yaml_or_dict(defaults)
@@ -843,7 +859,13 @@ def _start_series_with_info(frame, traj_file, top_file, frame_no):
 
     # get data
     basename = os.path.basename(traj_file).split('.')[0]
-    pdb_file = os.path.join(os.getcwd(), f'tmp_{basename}_frame_{frame_no}_hash_{abs(hash(frame))}.pdb')
+    try:
+        pdb_file = os.path.join(os.getcwd(), f'tmp_{basename}_frame_{frame_no}_hash_{abs(hash(frame))}.pdb')
+    except AttributeError:
+        print("Mdtraj couldn't hash. Creating random int.")
+        import random
+        hash_ = random.getrandbits(128)
+        pdb_file = os.path.join(os.getcwd(), f'tmp_{basename}_frame_{frame_no}_hash_{hash_}.pdb')
 
     return series, basename, pdb_file
 
@@ -1471,7 +1493,7 @@ def test_mdtraj_stringio(frame, traj_file, top_file, frame_no, testing=False,
 
 def get_series_from_mdtraj(frame, traj_file, top_file, frame_no, testing=False,
                            from_tmp=False, yaml_file='', fix_isopeptides=True,
-                           check_fix_isopeptides=False, isopeptide_bonds=None,
+                           check_fix_isopeptides=False, isopeptide_bonds=None, ubq_site=None,
                            print_raw_out=False, test_single_residue=False, **kwargs):
     """Saves a temporary pdb file which will then be passed to call_xplor_with_yaml
 
@@ -1547,7 +1569,8 @@ def get_series_from_mdtraj(frame, traj_file, top_file, frame_no, testing=False,
     """
     # pre-formatted series
     series, basename, pdb_file = _start_series_with_info(frame, traj_file, top_file, frame_no)
-    _, ubq_site = get_ubq_site_and_basename(traj_file)
+    if ubq_site is None:
+        _, ubq_site = get_ubq_site_and_basename(traj_file)
 
     # how many residues.
     should_be_residue_number = frame.n_residues
@@ -1628,8 +1651,10 @@ def get_series_from_mdtraj(frame, traj_file, top_file, frame_no, testing=False,
             if f'{position} {resname}{resSeq} sPRE' == test_single_residue:
                 print(o[2])
                 raise Exception("STOP")
-
-    basename, ubq_site = get_ubq_site_and_basename(traj_file)
+    if ubq_site is None:
+        basename, ubq_site = get_ubq_site_and_basename(traj_file)
+    else:
+        basename = ubq_site
     series['basename'] = basename
     series['ubq_site'] = ubq_site
     series['isopeptide'] = fix_isopeptides

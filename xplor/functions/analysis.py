@@ -340,7 +340,8 @@ def center_ref_and_load(overwrite: bool = False) -> Tuple[mdtraj.Trajectory, np.
 
 def add_reference_to_map(ax, step: int = 5, rotate: bool = False,
                          pole_longitude: float = 180.0,
-                         pole_latitude: float = 90.0) -> matplotlib.axes.Axes:
+                         pole_latitude: float = 90.0,
+                         use_adjust_text: bool = False) -> matplotlib.axes.Axes:
     """"""
     traj, idx, labels = center_ref_and_load()
     scatter = traj.xyz[0, idx]
@@ -353,9 +354,18 @@ def add_reference_to_map(ax, step: int = 5, rotate: bool = False,
         transform = ccrs.Geodetic()
     ax.plot(lons, lats, marker='o', transform=transform)
     ax.set_global()
-    for i, label in enumerate(labels):
-        if (i + 1) % step == 0 or i == 0:
-            ax.annotate(label, (lons[i], lats[i]), xycoords=transform._as_mpl_transform(ax))
+    if not use_adjust_text:
+        for i, label in enumerate(labels):
+            if (i + 1) % step == 0 or i == 0:
+                ax.annotate(label, (lons[i], lats[i]), xycoords=transform._as_mpl_transform(ax))
+    else:
+        from adjustText import adjust_text
+        texts = []
+        for i, label in enumerate(labels):
+            if (i + 1) % step == 0 or i == 0:
+                txt = ax.text(lons[i], lats[i], label, transform=transform._as_mpl_transform(ax))
+                texts.append(txt)
+        adjust_text(texts, only_move={'points':'y', 'texts':'y'}, arrowprops=dict(arrowstyle="->", color='r', lw=0.5))
     return ax
 
 
@@ -449,13 +459,14 @@ def get_dist_indices(traj, traj_file):
 
 
 def replace_top_with_gromos(traj, ubq_site):
-    from custom_gromacstopfile import CustomGromacsTopFile
+    from .custom_gromacstopfile import CustomGromacsTopFile
     with Capturing() as output:
         top_aa = CustomGromacsTopFile(
             f'/home/andrejb/Software/custom_tools/topology_builder/topologies/gromos54a7-isop/diUBQ_{ubq_site.upper()}/system.top',
             includeDir='/home/andrejb/Software/gmx_forcefields')
     top = md.Topology.from_openmm(top_aa.topology)
     traj.top = top
+    return traj
 
 
 def h_bond_too_long(traj, bond):
@@ -465,17 +476,22 @@ def h_bond_too_long(traj, bond):
     return False
 
 
-def fix_pdb(traj, file, ubq_site, threshold=3, overwrite=False):
+def fix_pdb(traj, file, ubq_site, threshold=3, overwrite=False, debug=None):
     print(file)
     sys.path.insert(0, f'/home/kevin/projects/anastasia')
     bond_lengths = {'C-C': 0.153, 'C-O': 0.123, 'O-C': 0.123, 'C-N': 0.134,
                     'N-C': 0.134, 'N-H': 0.1, 'H-N': 0.1, 'C-H': 0.109}
     from rotate import _get_far_and_near_networkx
     from transformations import translation_matrix
-    replace_top_with_gromos(traj, ubq_site)
-    for i, frame in enumerate(traj):
+    traj = replace_top_with_gromos(traj, ubq_site)
+    original_atom_counts = copy.deepcopy(traj.n_atoms)
+    if debug == '/home/andrejb/Research/SIMS/2017_02_14_G_2ub_k33_02_03/traj_nojump.xtc':
+        print(f"For {debug}, the current atom count is {traj.n_atoms}.")
+    for i in range(traj.n_frames):
+        frame = traj[i]
         for bond in frame.top.bonds:
-
+            if debug == '/home/andrejb/Research/SIMS/2017_02_14_G_2ub_k33_02_03/traj_nojump.xtc':
+                print(f"At frame {i}. For {debug}, the current atom count is {traj.n_atoms}.")
             bond_length = get_bond_length(frame, bond)
 
             if bond_length > threshold or h_bond_too_long(frame, bond):
@@ -505,12 +521,27 @@ def fix_pdb(traj, file, ubq_site, threshold=3, overwrite=False):
                 trans_mat = translation_matrix(translation_vector)
                 padded = np.pad(frame.xyz[0, far], ((0, 0), (0, 1)), mode='constant', constant_values=1)
                 new_points = trans_mat.dot(padded.T).T[:, :3]
-                traj.xyz[i, far] = new_points
+                try:
+                    traj.xyz[i, far] = new_points
+                except IndexError as e:
+                    e2 = Exception(f"An index error was raised for a traj with. This is the cause: Bond lengths can not always be fixed. "
+                                   f"But if the bond contains a hydrogen atom, the atom is deleted and the algorithm continues. If an atom "
+                                   f"is deleted, this changes the number of atoms in the traj and the far side indexes atoms, that are not "
+                                   f"there anymore. This behavior only occurs if one atom has been deleted. That's wat's also checked for. If "
+                                   f"more than one atom is deleted, this Exception here is raised. Something else is not right. I might have "
+                                   f"missed some edge cases.")
+                    diff = np.setdiff1d(original_atom_counts, np.arange(traj.n_atoms))
+                    if diff.size == 1:
+                        far = np.intersect1d(far, np.arange(traj.n_atoms))
+                        new_points = new_points[np.arange(len(far))]
+                        traj.xyz[i, far] = new_points
+                    else:
+                        raise e2 from e
 
                 # check
                 if not np.isclose(np.linalg.norm(traj.xyz[i, bond[0].index] - traj.xyz[i, bond[1].index]), should_be_bond_length, atol=0.1):
                     if len(far) == 1:
-                        if bond[1].element.symbol == H:
+                        if bond[1].element.symbol == 'H':
                             atoms = np.setdiff1d(np.arange(traj.n_atoms), bond[1].index)
                             assert len(atoms) == traj.n_atoms - 1
                             traj = traj.atom_slice(atoms)
