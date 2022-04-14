@@ -365,7 +365,7 @@ def add_reference_to_map(ax, step: int = 5, rotate: bool = False,
             if (i + 1) % step == 0 or i == 0:
                 txt = ax.text(lons[i], lats[i], label, transform=transform._as_mpl_transform(ax))
                 texts.append(txt)
-        adjust_text(texts, only_move={'points':'y', 'texts':'y'}, arrowprops=dict(arrowstyle="->", color='r', lw=0.5))
+        adjust_text(texts, only_move={'points':'y', 'texts':'y'}, arrowprops=dict(arrowstyle="->", color=(0, 0, 0, 0), lw=0.5))
     return ax
 
 
