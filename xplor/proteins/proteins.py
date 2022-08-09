@@ -2,6 +2,8 @@ import mdtraj as md
 import numpy as np
 import pandas as pd
 import  itertools, os, sys
+from pathlib import Path
+from ..get_file import get_xplor_init
 
 
 AMINO_ACIDS_3_LETTER_1 = os.path.join(os.path.dirname(sys.modules['xplor'].__file__), "data/amino_acid_names_3_1_letter.txt")
@@ -25,7 +27,7 @@ def get_column_names_from_pdb(pdbid='1UBQ', return_residues=False, return_AAs=Fa
     if pdbid != '1UBQ':
         _ = md.load_pdb(f'https://files.rcsb.org/view/{pdbid}.pdb')
     else:
-        _ = md.load_pdb('/home/kevin/1UBQ.pdb')
+        _ = md.load_pdb(f"{Path(get_xplor_init()).parent.parent}/xplor/data/1UBQ.pdb")
     fasta = [i for i in _.top.to_fasta()[0]]
     AAs = np.genfromtxt(AMINO_ACIDS_3_LETTER_1, delimiter=' - ', dtype=str)
     AAs = pd.DataFrame(AAs, columns=['name', '3letter', '1letter'])

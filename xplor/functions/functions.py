@@ -23,6 +23,8 @@ from scipy.optimize import minimize, NonlinearConstraint, Bounds, nnls
 from typing import Callable
 import collections.abc
 from ..misc import delete_old_csvs
+from ..get_file import get_xplor_init
+from pathlib import Path
 
 
 ################################################################################
@@ -128,13 +130,13 @@ def create_psf_files(ubq_sites):
 
     """
     for ubq_site in ubq_sites:
-        gromos_top_file = f'/home/andrejb/Research/DEVA/2017_04_27_UBQ_TOPOLOGIES/top_G54A7/diUBQ/{ubq_site}_01/system.top'
+        gromos_top_file = f"{Path(get_xplor_init()).parent.parent}/topologies/{ubq_site}/system.top"
         with Capturing() as output:
-            omm_top = CustomGromacsTopFile(gromos_top_file, includeDir='/home/andrejb/Software/gmx_forcefields')
+            omm_top = CustomGromacsTopFile(gromos_top_file, includeDir={Path(get_xplor_init()).parent.parent}/topologies/forcefields)
 
         # mdtraj part
-        # pdb_file = f'/home/andrejb/Research/DEVA/2017_04_27_UBQ_TOPOLOGIES/top_G54A7/diUBQ/{ubq_site}_01/{ubq_site}_01.pdb'
-        pdb_file = glob.glob(f'/home/andrejb/Research/SIMS/2017_*_G_2ub_{ubq_site}_01_01/start.pdb')
+        # pdb_file = f"{Path(get_xplor_init()).parent.parent}/topologies/{ubq_site}/{ubq_site}_01.pdb"
+        pdb_file = glob.glob(f"{Path(get_xplor_init()).parent.parent}/molsim/2017_*_G_2ub_{ubq_site}_01_01/start.pdb")
         assert len(pdb_file) == 1
         pdb_file = pdb_file[0]
         traj = md.load(pdb_file)
@@ -235,7 +237,7 @@ def datetime_windows_and_linux_compatible():
 
 def is_aa_sim(file):
     """From a traj_nojump.xtc, decides, whether sim is an aa sim."""
-    if '/home/kevin/projects/molsim/diUbi_aa' in file:
+    if {Path(get_xplor_init()).parent.parent}/molsim in file:
         return True
     directory = '/'.join(file.split('/')[:-1])
     contents = os.listdir(directory)
@@ -588,9 +590,9 @@ def call_xplor_with_yaml(pdb_file, psf_file=None, yaml_file='', from_tmp=False,
     arguments = write_argparse_lines_from_yaml_or_dict(defaults)
 
     if from_tmp:
-        executable = f'/home/kevin/software/xplor-nih/xplor-nih-3.2/bin/pyXplor {os.getcwd()}/xplor/scripts/xplor_single_struct.py'
+        executable = f'{os.getenv("PYXPLOR_EXECUTABLE")} {os.getcwd()}/xplor/scripts/xplor_single_struct.py'
     else:
-        executable = '/home/kevin/software/xplor-nih/xplor-nih-3.2/bin/pyXplor ' + get_local_or_proj_file('scripts/xplor_single_struct.py')
+        executable = f'{os.getenv("PYXPLOR_EXECUTABLE")} ' + get_local_or_proj_file('scripts/xplor_single_struct.py')
     if fix_isopeptides:
         if psf_file is None:
             raise Exception("Please provide the path to a psf file, when running in `fix_isopeptides`-mode.")
@@ -623,8 +625,8 @@ def call_xplor_with_yaml(pdb_file, psf_file=None, yaml_file='', from_tmp=False,
     return out
 
 
-def parallel_xplor(ubq_sites, simdir='/home/andrejb/Research/SIMS/2017_*', n_threads='max-2',
-                   df_outdir='/home/kevin/projects/tobias_schneider/values_from_every_frame/from_package/',
+def parallel_xplor(ubq_sites, simdir=f"{Path(get_xplor_init()).parent.parent}/molsim/2017_*", n_threads='max-2',
+                   df_outdir=f"{Path(get_xplor_init()).parent.parent}/data/values_from_every_frame/from_package/",
                    suffix='_df_no_conect.csv', write_csv=True, fix_isopeptides=True, specific_index=None, parallel=False,
                    subsample=5, yaml_file='', testing=False, from_tmp=False, max_len=-1, break_after=False,
                    delete_csvs=None, **kwargs):
@@ -645,13 +647,13 @@ def parallel_xplor(ubq_sites, simdir='/home/andrejb/Research/SIMS/2017_*', n_thr
 
     Keyword Args:
         simdir (str, optional): Path to the sims, that contain the ubq_site substring.
-            Defaults to '/home/andrejb/Research/SIMS/2017_*'
+            Defaults to f"{Path(get_xplor_init()).parent.parent}/molsim/2017_*"
         n_threads (Union[int, str], optional): The number of threads to run.
             Can be an int, but also 'max' or 'max-2', where 'max' will give
             make this function use the maximum number of cores. 'max-2' will use
             all but 2 cores. Defaults to 'max-2'
         df_outdir (str, optional): Where to save the csv files to. Defaults to
-            '/home/kevin/projects/tobias_schneider/values_from_every_frame/from_package/'.
+            f"{Path(get_xplor_init()).parent.parent}/data/values_from_every_frame/from_package/".
         suffix (str, optional): Suffix of the csv files, used to sort different
             runs. Defaults to '_df_no_conect.csv'.
         write_csv (bool, optional): Whether to write the csv to disk. Defaults
@@ -706,20 +708,20 @@ def parallel_xplor(ubq_sites, simdir='/home/andrejb/Research/SIMS/2017_*', n_thr
 
     # run loop
     for i, ubq_site in enumerate(ubq_sites):
-        for j, dir_ in enumerate(glob.glob(f"{simdir}{ubq_site}_*") + glob.glob(f'/home/kevin/projects/molsim/diUbi_aa/{ubq_site.upper()}_*')):
+        for j, dir_ in enumerate(glob.glob(f"{simdir}{ubq_site}_*") + glob.glob(f"{Path(get_xplor_init()).parent.parent}/molsim/{ubq_site.upper()}_*")):
             traj_file = dir_ + '/traj_nojump.xtc'
-            if 'andrejb' in traj_file:
+            if '2017' in traj_file:
                 if not is_aa_sim(traj_file):
                     print(f"{traj_file} is not an AA sim")
                     continue
             basename = traj_file.split('/')[-2]
-            if 'andrejb' in traj_file:
+            if '2017' in traj_file:
                 top_file = dir_ + '/start.pdb'
             else:
                 top_file = dir_ + '/init.gro'
             with Capturing() as output:
-                top_aa = CustomGromacsTopFile(f'/home/andrejb/Software/custom_tools/topology_builder/topologies/gromos54a7-isop/diUBQ_{ubq_site.upper()}/system.top',
-                                              includeDir='/home/andrejb/Software/gmx_forcefields')
+                top_aa = CustomGromacsTopFile(f"{Path(get_xplor_init()).parent.parent}/topologies/diUBQ_{ubq_site.upper()}/system.top",
+                                              includeDir={Path(get_xplor_init()).parent.parent}/topologies/forcefields)
             traj = md.load(traj_file, top=top_file)
             traj.top = md.Topology.from_openmm(top_aa.topology)
 
@@ -872,7 +874,7 @@ def _start_series_with_info(frame, traj_file, top_file, frame_no):
 
 def _test_xplor_with_pdb(pdb_file):
     tbl_file = get_local_or_proj_file('data/diUbi_k6_800_mhz_relaxratiopot_in.tbl')
-    executable = '/home/kevin/software/xplor-nih/executables/pyXplor -c '
+    executable = f'{os.getenv("PYXPLOR_EXECUTABLE")} -c '
     cmd = f""""import protocol
     from diffPotTools import readInRelaxData
     from relaxRatioPotTools import create_RelaxRatioPot
@@ -898,7 +900,7 @@ def _test_xplor_with_pdb(pdb_file):
 
 def _test_xplor_with_psf(psf_file, pdb_file):
     tbl_file = get_local_or_proj_file('data/diUbi_k6_800_mhz_relaxratiopot_in.tbl')
-    executable = '/home/kevin/software/xplor-nih/executables/pyXplor -c '
+    executable = f'{os.getenv("PYXPLOR_EXECUTABLE")} -c '
     cmd = f""""import protocol
         from diffPotTools import readInRelaxData
         from relaxRatioPotTools import create_RelaxRatioPot
@@ -931,7 +933,7 @@ def _test_xplor_with_psf(psf_file, pdb_file):
 def call_pdb2psf(file, dir_, cwd):
     try:
         os.chdir(dir_)
-        cmd = f'/home/kevin/software/xplor-nih/executables/pdb2psf {file}'
+        cmd = f'{os.getenv("PDB2PSF_EXECUTABLE")} {file}'
         process = subprocess.Popen(cmd, stderr=subprocess.PIPE, stdout=subprocess.PIPE, shell=True)
         out, err = process.communicate()
         return_code = process.poll()
@@ -943,16 +945,16 @@ def call_pdb2psf(file, dir_, cwd):
 
 
 def test_conect(traj_file, pdb_file, remove_after=True, frame_no=0, ast_print=0,
-                top='', dir_='/home/kevin/projects/tobias_schneider/test_parmed/'):
+                top='', dir_=f"{Path(get_xplor_init()).parent.parent}/data/test_parmed/"):
     cwd = os.getcwd()
 
     # create OpenMM topology
     if not top:
         basename, ubq_site = get_ubq_site_and_basename(traj_file)
-        # gromos_top_file = f'/home/andrejb/Software/custom_tools/topology_builder/topologies/gromos54a7-isop/diUBQ_{ubq_site.upper()}/system.top'
-        gromos_top_file = f'/home/andrejb/Research/DEVA/2017_04_27_UBQ_TOPOLOGIES/top_G54A7/diUBQ/{ubq_site}_01/system.top'
+        # gromos_top_file = f"{Path(get_xplor_init()).parent.parent}/topologies/diUBQ_{ubq_site.upper()}/system.top"
+        gromos_top_file = f"{Path(get_xplor_init()).parent.parent}/topologies/{ubq_site}/system.top"
         with Capturing() as output:
-            omm_top = CustomGromacsTopFile(gromos_top_file, includeDir='/home/andrejb/Software/gmx_forcefields')
+            omm_top = CustomGromacsTopFile(gromos_top_file, includeDir={Path(get_xplor_init()).parent.parent}/topologies/forcefields)
     else:
         with Capturing() as output:
             omm_top = CustomGromacsTopFile(top, includeDir='/home/soft/gromacs/gromacs-2021.1/src/share/top/')

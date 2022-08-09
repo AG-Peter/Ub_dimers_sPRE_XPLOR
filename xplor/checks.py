@@ -1,4 +1,5 @@
 import os, re, sys, glob
+from pathlib import import Path
 import numpy as np
 import mdtraj as md
 import pandas as pd
@@ -9,7 +10,7 @@ from .functions.parse_input_files.parse_input_files import make_sPRE_table
 from .functions.custom_gromacstopfile import CustomGromacsTopFile
 from .functions.functions import Capturing
 from .functions.functions import RAMFile
-
+from .get_file import get_xplor_init
 
 RESIDUE_THAT_WORKS = 4
 
@@ -104,7 +105,7 @@ def have_columns_been_switched(df1, df2, positions=None, csv1=None, csv2=None):
 
 
 def determine_changed_dfs(skiprows=2500):
-    dirs = glob.glob('/home/kevin/projects/tobias_schneider/values_from_every_frame/*/')
+    dirs = glob.glob(f"{Path(get_xplor_init()).parent.parent}/data/values_from_every_frame/*/")
     for dir_ in dirs:
         if 'render' in dir_:
             continue
@@ -192,7 +193,7 @@ def mistake_in_parser(seq, pos, ubq_site):
         raise Exception(f"Arg `pos` must be 'proximal', or 'dista;', you supplied: {pos}.")
 
     out_file = RAMFile()
-    inp = f'/home/kevin/git/xplor_functions/xplor/data/spre_and_relaxation_data_k6_k29_k33/di_ub2_{ubq_site}_*_sPRE.txt'
+    inp = f"{Path(get_xplor_init()).parent.parent}/xplor/data/spre_and_relaxation_data_k6_k29_k33/di_ub2_{ubq_site}_*_sPRE.txt"
     test_df = make_sPRE_table(in_files=inp, out_file=out_file)
     out_file.seek(0)
     out_file = out_file.read()
@@ -209,7 +210,7 @@ def mistake_in_parser(seq, pos, ubq_site):
         short_opp_pos = 'prox'
     else:
         short_opp_pos = 'dist'
-    filename = f'/home/kevin/git/xplor_functions/xplor/data/spre_and_relaxation_data_k6_k29_k33/di_ub2_{ubq_site}_{short_opp_pos}_sPRE.txt'
+    filename = f"{Path(get_xplor_init()).parent.parent}/xplor/data/spre_and_relaxation_data_k6_k29_k33/di_ub2_{ubq_site}_{short_opp_pos}_sPRE.txt"
     with open(filename, 'r') as f:
         for line in f.read().splitlines():
             if seq in line:
@@ -230,8 +231,8 @@ def cant_be_called_with_xplor(seq, pos, df, ubq_site):
 
     with Capturing() as output:
         top_aa = CustomGromacsTopFile(
-            f'/home/andrejb/Software/custom_tools/topology_builder/topologies/gromos54a7-isop/diUBQ_{ubq_site.upper()}/system.top',
-            includeDir='/home/andrejb/Software/gmx_forcefields')
+            f"forcefields will be made available upon request/custom_tools/topology_builder/topologies/gromos54a7-isop/diUBQ_{ubq_site.upper()}/system.top",
+            includeDir=f"forcefields will be made available upon request/gmx_forcefields")
     frame.top = md.Topology.from_openmm(top_aa.topology)
 
     isopeptide_indices = []
@@ -273,7 +274,7 @@ def cant_be_called_with_xplor(seq, pos, df, ubq_site):
 
 
 def call_xplor_from_frame_and_single_residue(frame, residue,
-                                             executable='/home/kevin/software/xplor-nih/executables/pyXplor '):
+                                             executable=os.getenv('PYXPLOR_EXECUTABLE')):
     import subprocess
     tmp_pdb_file = '/tmp/tmp.pdb'
     frame.save_pdb(tmp_pdb_file)
@@ -322,7 +323,7 @@ def what_went_wrong(ubq_site='k6', skiprows=2500, manual_exclusions=None):
     """
     # load an old and a new df file and make sure the sPRE values are switched up
     search_dir = 'values_from_every_frame/from_package_all'
-    df_files = glob.glob(f'/home/kevin/projects/tobias_schneider/'
+    df_files = glob.glob(f'{Path(get_xplor_init()).parent.parent}/data'
                          f'{search_dir}/*csv')
     df_files = list(sorted(df_files, key=get_iso_time))
     older_file = df_files[-2]
@@ -363,7 +364,7 @@ def what_went_wrong(ubq_site='k6', skiprows=2500, manual_exclusions=None):
                              ('Phe4', 'proximal')]
 
     # If lines have been switched get the experimental values
-    inp = f'/home/kevin/git/xplor_functions/xplor/data/spre_and_relaxation_data_k6_k29_k33/di_ub2_{ubq_site}_*_sPRE.txt'
+    inp = f"{Path(get_xplor_init()).parent.parent}/xplor/data/spre_and_relaxation_data_k6_k29_k33/di_ub2_{ubq_site}_*_sPRE.txt"
     exp = make_sPRE_table(inp).fillna(0)
     missing_values = {}
     columns = [c for c in df.columns if 'sPRE' in c]

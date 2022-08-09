@@ -13,7 +13,7 @@ import parmed as pmd
 
 # %% Streamline observables and computation
 from xplor.functions.functions import get_ubq_site
-df_comp = pd.read_csv('/home/kevin/projects/tobias_schneider/values_from_every_frame/2021-08-25T13:01:39+02:00_df.csv',
+df_comp = pd.read_csv(f"{Path(xplor.__file__).parent.parent}/data/values_from_every_frame/2021-08-25T13:01:39+02:00_df.csv",
                       index_col=0)
 if not 'ubq_site' in df_comp.keys():
     df_comp['ubq_site'] = df_comp['traj_file'].map(get_ubq_site)

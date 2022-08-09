@@ -35,8 +35,8 @@ xplor.functions.test_conect(xtc, pdb, remove_after=True, ast_print=0)
 # %% This works without problems. Something else must cause the error:
 # check the files
 from xplor.functions.functions import check_pdb_and_psf_integrity
-pdb_file = '/home/kevin/git/xplor_functions/xplor/scripts/2021-08-14_crash_tmp_traj_nojump_frame.pdb'
-psf_file = '/home/kevin/git/xplor_functions/xplor/scripts/2021-08-14_crash_tmp_traj_nojump_frame.psf'
+pdb_file = f"{Path(xplor.__file__).parent.parent}/xplor/scripts/2021-08-14_crash_tmp_traj_nojump_frame.pdb"
+psf_file = f"{Path(xplor.__file__).parent.parent}/xplor/scripts/2021-08-14_crash_tmp_traj_nojump_frame.psf"
 check_pdb_and_psf_integrity(pdb_file, psf_file)
 
 # %% The atom HB1 in LEU8 is not named correclty
@@ -48,14 +48,14 @@ check_pdb_and_psf_integrity(pdb_file, psf_file)
 from xplor.functions.functions import Capturing
 from xplor.functions.custom_gromacstopfile import CustomGromacsTopFile
 
-pdb = '/home/andrejb/Research/SIMS/2017_04_27_G_2ub_k6_01_02/start.pdb'
-xtc = '/home/andrejb/Research/SIMS/2017_04_27_G_2ub_k6_01_02/traj_nojump.xtc'
+pdb = f"{Path(xplor.__file__).parent.parent}/molsim/2017_04_27_G_2ub_k6_01_02/start.pdb"
+xtc = f"{Path(xplor.__file__).parent.parent}/molsim/2017_04_27_G_2ub_k6_01_02/traj_nojump.xtc"
 
 frame = md.load_frame(xtc, 475, top=pdb)
 
-gromos_top_file = f'/home/andrejb/Research/DEVA/2017_04_27_UBQ_TOPOLOGIES/top_G54A7/diUBQ/k6_01/system.top'
+gromos_top_file = f"{Path(xplor.__file__).parent.parent}/topologies/k6/system.top"
 with Capturing() as output:
-    omm_top = CustomGromacsTopFile(gromos_top_file, includeDir='/home/andrejb/Software/gmx_forcefields')
+    omm_top = CustomGromacsTopFile(gromos_top_file, includeDir=f"forcefields will be made available upon request/gmx_forcefields")
 
 frame.top = md.Topology.from_openmm(omm_top.topology)
 
@@ -86,7 +86,7 @@ pd.options.display.min_rows = 40
 
 # %% Why are the series with isopeptides empty?
 # _ = xplor.functions.parallel_xplor(['k6', 'k29', 'k33'], from_tmp=True, write_csv=False,
-#                                   df_outdir='/home/kevin/projects/tobias_schneider/values_from_every_frame/from_package_with_conect/',
+#                                   df_outdir=f"{Path(xplor.__file__).parent.parent}/data/values_from_every_frame/from_package_with_conect/",
 #                                   suffix='_df.csv', parallel=False)
 
 # %% Prepare the psf files
@@ -126,7 +126,7 @@ series = xplor.functions.get_series_from_mdtraj(traj, traj_file, traj_file, 0, f
 
 # %% Run on everything
 _ = xplor.functions.parallel_xplor(['k6', 'k29', 'k33'], from_tmp=True, max_len=20, write_csv=False,
-                                  df_outdir='/home/kevin/projects/tobias_schneider/values_from_every_frame/from_package_with_conect/',
+                                  df_outdir=f"{Path(xplor.__file__).parent.parent}/data/values_from_every_frame/from_package_with_conect/",
                                   suffix='_df.csv', parallel=False, break_after=3)
 
 # %%

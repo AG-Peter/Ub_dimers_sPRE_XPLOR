@@ -12,15 +12,15 @@ import seaborn as sns
 import scipy
 import xplor
 import cartopy.crs as ccrs
-
+from pathlib import import Path
 import sys, re, glob, os, itertools, pyemma, json, hdbscan, copy
 
 # %% delete old csvs
-xplor.misc.delete_old_csvs('/home/kevin/projects/tobias_schneider/values_from_every_frame/from_package/',
+xplor.misc.delete_old_csvs(f"{Path(xplor.__file__).parent.parent}/data/values_from_every_frame/from_package/",
                             suffix='_df_no_conect.csv', )
 
 # %% Get data from last working encodermap
-for root, dirs, files in os.walk("/home/kevin/projects/tobias_schneider/"):
+for root, dirs, files in os.walk("{Path(xplor.__file__).parent.parent}/xplor_analysis_files/runs/{ubq_site}/"):
     for file in files:
         if file.endswith(".json"):
             print(os.path.join(root, file))
@@ -40,12 +40,12 @@ ubq_sites = ['k6', 'k29', 'k33']
 overwrite = True
 quality_factor_means = {ubq_site: [] for ubq_site in ubq_sites}
 
-json_savefile = '/mnt/data/kevin/xplor_analysis_files/quality_factors.json'
+json_savefile = f"{Path(xplor.__file__).parent.parent}/xplor_analysis_files/quality_factors.json"
 with open(json_savefile, 'r') as f:
     all_quality_factors = json.load(f)
 
 for ubq_site in ubq_sites:
-    image_file = f'/mnt/data/kevin/xplor_analysis_files/quality_factors_{ubq_site}.png'
+    image_file = f"{Path(xplor.__file__).parent.parent}/xplor_analysis_files/quality_factors_{ubq_site}.png"
     if not os.path.isfile(image_file) or overwrite or overwrite_image:
         plt.close('all')
         # data = np.array(self.quality_factor_means[ubq_site])
@@ -82,7 +82,7 @@ traj_files = analysis.aa_df[analysis.aa_df['ubq_site'].str.lower().str.contains(
 print(analysis.aa_df['distal THR9 sPRE'])
 
 # %% manual save
-analysis.aa_df.to_csv('/home/kevin/projects/tobias_schneider/aa_df_sPRE_manual_with_new_psol.csv')
+analysis.aa_df.to_csv(f"{Path(xplor.__file__).parent.parent}/data/aa_df_sPRE_manual_with_new_psol.csv")
 analysis.aa_df.to_csv(analysis.large_df_file)
 
  # %% develop an analysis function
@@ -121,7 +121,7 @@ from xplor.checks import call_xplor_from_frame_and_single_residue
 
 # read rge empty tbl
 ints_in_empty_tbl = []
-with open('/home/kevin/git/xplor_functions/xplor/data/diUbi_empty.tbl') as f:
+with open(f"{Path(xplor.__file__).parent.parent}/xplor/data/diUbi_empty.tbl") as f:
     for l in f.read().splitlines():
         i = int(l.split()[2])
         ints_in_empty_tbl.append(i)
@@ -131,8 +131,8 @@ frame = md.load_frame(xtc_file, 0, top=pdb_file)
 
 with Capturing() as output:
     top_aa = CustomGromacsTopFile(
-        f'/home/andrejb/Software/custom_tools/topology_builder/topologies/gromos54a7-isop/diUBQ_K6/system.top',
-        includeDir='/home/andrejb/Software/gmx_forcefields')
+        f"forcefields will be made available upon request/custom_tools/topology_builder/topologies/gromos54a7-isop/diUBQ_K6/system.top",
+        includeDir=f"forcefields will be made available upon request/gmx_forcefields")
 frame.top = md.Topology.from_openmm(top_aa.topology)
 
 isopeptide_indices = []
@@ -180,7 +180,7 @@ fast_exchangers = get_fast_exchangers(['k6', 'k29', 'k33'])
 # check how the all_frames dataframe can be transformed into the for_saving dataframes
 # find the data that produces
 # if 'find_this' not in globals():
-#     find_this = pd.read_csv(f'/mnt/data/kevin/xplor_analysis_files/sub_df_for_saving_{ubq_site}.csv.back_before_new_psol')
+#     find_this = pd.read_csv(f"{Path(xplor.__file__).parent.parent}/xplor_analysis_files/sub_df_for_saving_{ubq_site}.csv.back_before_new_psol")
 # print(find_this.columns.tolist())
 #
 # raise Exception("STOP")
@@ -189,14 +189,14 @@ fast_exchangers = get_fast_exchangers(['k6', 'k29', 'k33'])
 from xplor.functions.parse_input_files.parse_input_files_legacy import get_observed_df as get_observed_df_legacy
 df_obs_old = get_observed_df_legacy(['k6', 'k29', 'k33'])
 if 'aa_df_old' not in globals():
-    sub_dfs = [pd.read_csv(f'/mnt/data/kevin/xplor_analysis_files/sub_df_for_saving_{i}.csv.back_before_new_psol') for i in ['k6', 'k29', 'k33']]
+    sub_dfs = [pd.read_csv(f"{Path(xplor.__file__).parent.parent}/xplor_analysis_files/sub_df_for_saving_{i}.csv.back_before_new_psol") for i in ['k6', 'k29', 'k33']]
     aa_df_old = pd.concat(sub_dfs)
-    # aa_df_old = pd.read_csv("/mnt/data/kevin/xplor_analysis_files/lowd_and_xplor_df.csv.back")
+    # aa_df_old = pd.read_csv(f"{Path(xplor.__file__).parent.parent}/xplor_analysis_files/lowd_and_xplor_df.csv.back")
 df_sim_old = aa_df_old[aa_df_old['ubq_site'] == ubq_site]
 assert df_sim_old['distal THR9 sPRE'].mean() == 0, print(df_sim_old['distal THR9 sPRE'].mean())
 coefficients = make_linear_combination_from_clusters(None, df_sim_old, df_obs_old,
                                                      fast_exchangers, ubq_site=ubq_site)
-with pd.HDFStore('/home/kevin/projects/tobias_schneider/new_images/clusters.h5') as store:
+with pd.HDFStore(f"{Path(xplor.__file__).parent.parent}/data/new_images/clusters.h5") as store:
     clu_df, _ = h5load(store)
 clu_df = clu_df[clu_df['ubq site'] == ubq_site][['cluster id', 'N frames']]
 clu_df = clu_df.sort_values('N frames', ascending=False)
@@ -211,7 +211,7 @@ print('old data and old obs with manual fixed columns', np.round(coefficients, 2
 
 # try the new data with the old df_obs
 if not 'aa_df_new' in globals():
-    aa_df_new = pd.read_csv('/home/kevin/projects/tobias_schneider/aa_df_sPRE_manual_with_new_psol.csv')
+    aa_df_new = pd.read_csv(f"{Path(xplor.__file__).parent.parent}/data/aa_df_sPRE_manual_with_new_psol.csv")
 df_sim_new = aa_df_new[aa_df_new['ubq_site'] == ubq_site]
 coefficients = make_linear_combination_from_clusters(None, df_sim_new, df_obs_old,
                                                      fast_exchangers, ubq_site=ubq_site)
@@ -248,7 +248,7 @@ analysis.compare_exp_sim('k6', 'proximal PHE4 sPRE')
 analysis.aa_df[(analysis.aa_df['ubq_site'] == 'k6') & (analysis.aa_df['count id'] == 0)]
 
 # %%
-analysis.write_clusters(f'/home/kevin/projects/tobias_schneider/cluster_analysis_with_fixed_normalization',
+analysis.write_clusters(f"{Path(xplor.__file__).parent.parent}/data/cluster_analysis_with_fixed_normalization",
                         {'k6': [0, 1, 2, 11], 'k29': [0, 11, 12], 'k33': [19]}, which='count_id',
                         pdb=None, max_frames=200)
 
@@ -256,7 +256,7 @@ analysis.write_clusters(f'/home/kevin/projects/tobias_schneider/cluster_analysis
 
 
 # %% new per cluster analysis
-# analysis.write_clusters(directory='/home/kevin/projects/tobias_schneider/new_cluster_analysis',
+# analysis.write_clusters(directory=f"{Path(xplor.__file__).parent.parent}/data/new_cluster_analysis",
 #                         clusters={'k6': [5, 9], 'k29': [0, 12], 'k33': [20]}, which='count_id')
 analysis.run_per_cluster_analysis(overwrite_final_combination=True)
 
@@ -268,8 +268,8 @@ from xplor.functions.analysis import h5load, h5store, make_linear_combination_fr
 import pandas as pd
 import numpy as np
 
-old_df_file = '/home/kevin/projects/tobias_schneider/new_images/clusters.h5'
-new_df_file = '/home/kevin/projects/tobias_schneider/new_images/clusters_with_and_without_coeff.h5'
+old_df_file = f"{Path(xplor.__file__).parent.parent}/data/new_images/clusters.h5"
+new_df_file = f"{Path(xplor.__file__).parent.parent}/data/new_images/clusters_with_and_without_coeff.h5"
 
 with pd.HDFStore(old_df_file) as store:
     df, metadata = h5load(store)
@@ -295,8 +295,8 @@ for i, ubq_site in enumerate(analysis.ubq_sites):
         mean_abs_diff_no_coeff.append(np.mean(np.abs(cluster_mean - exp_values)))
     print(len(cluster_means), len(mean_abs_diff_no_coeff))
 
-    sub_df = sub_df.rename(columns={'mean abs diff to exp': 'mean abs diff to exp w/ coeff'})
-    sub_df['mean abs diff to exp w/o coeff'] = mean_abs_diff_no_coeff
+    sub_df = sub_df.rename(columns={'mean abs diff to exp': 'mean abs diff to exp w/ coef'})
+    sub_df['mean abs diff to exp w/o coef'] = mean_abs_diff_no_coeff
     sub_dfs.append(sub_df)
 
 df = pd.concat(sub_dfs, ignore_index=True)
@@ -304,13 +304,13 @@ h5store(new_df_file, df, **metadata)
 
 
 # %% Plot a single cluster
-analysis.plot_cluster(2, 'k6', overwrite=True, out_file='/home/kevin/projects/tobias_schneider/new_images/summary_single_cluster.png')
+analysis.plot_cluster(2, 'k6', overwrite=True, out_file=f"{Path(xplor.__file__).parent.parent}/data/new_images/summary_single_cluster.png")
 
 # %%
 
 # for ubq_site in analysis.ubq_sites:
-#     np.save(f'/mnt/data/kevin/xplor_analysis_files/lowd_{ubq_site}_aa.npy', analysis.aa_trajs[ubq_site].lowd)
-#     np.save(f'/mnt/data/kevin/xplor_analysis_files/lowd_{ubq_site}_cg.npy', analysis.cg_trajs[ubq_site].lowd)
+#     np.save(f"{Path(xplor.__file__).parent.parent}/xplor_analysis_files/lowd_{ubq_site}_aa.npy", analysis.aa_trajs[ubq_site].lowd)
+#     np.save(f"{Path(xplor.__file__).parent.parent}/xplor_analysis_files/lowd_{ubq_site}_cg.npy", analysis.cg_trajs[ubq_site].lowd)
 
 for ubq_site in analysis.ubq_sites:
     name_arr = []
@@ -318,14 +318,13 @@ for ubq_site in analysis.ubq_sites:
         for frame in traj:
             name_arr.append(frame.traj_file)
     name_arr = np.array(name_arr)
-    index = np.array(['kevin' in i for i in name_arr])
-    np.save(f'/mnt/data/kevin/xplor_analysis_files/lowd_{ubq_site}_aa_rotamers.npy', analysis.aa_trajs[ubq_site].lowd[index])
+    np.save(f"{Path(xplor.__file__).parent.parent}/xplor_analysis_files/lowd_{ubq_site}_aa_rotamers.npy", analysis.aa_trajs[ubq_site].lowd[index])
     index = np.array(['GfM_SMmin' in i and 'rnd' not in i for i in name_arr])
-    np.save(f'/mnt/data/kevin/xplor_analysis_files/lowd_{ubq_site}_SMin.npy', analysis.aa_trajs[ubq_site].lowd[index])
+    np.save(f"{Path(xplor.__file__).parent.parent}/xplor_analysis_files/lowd_{ubq_site}_SMin.npy", analysis.aa_trajs[ubq_site].lowd[index])
     index = np.array(['GfM_SMmin_rnd' in i for i in name_arr])
-    np.save(f'/mnt/data/kevin/xplor_analysis_files/lowd_{ubq_site}_aa_SMin_rnd.npy', analysis.aa_trajs[ubq_site].lowd[index])
+    np.save(f"{Path(xplor.__file__).parent.parent}/xplor_analysis_files/lowd_{ubq_site}_aa_SMin_rnd.npy", analysis.aa_trajs[ubq_site].lowd[index])
     index = np.array(['G_2ub' in i for i in name_arr])
-    np.save(f'/mnt/data/kevin/xplor_analysis_files/lowd_{ubq_site}_aa_extended.npy', analysis.aa_trajs[ubq_site].lowd[index])
+    np.save(f"{Path(xplor.__file__).parent.parent}/xplor_analysis_files/lowd_{ubq_site}_aa_extended.npy", analysis.aa_trajs[ubq_site].lowd[index])
 
 # %%
 
@@ -369,7 +368,7 @@ ax.set_xlim(xedges[[0, -1]])
 ax.set_ylim(yedges[[0, -1]])
 ax.set_zlim(zedges[[0, -1]])
 
-# plt.savefig('/mnt/data/kevin/xplor_analysis_files/inertia_distribution.png')
+# plt.savefig(f"{Path(xplor.__file__).parent.parent}/xplor_analysis_files/inertia_distribution.png")
 ax1.hist(analysis.inertia_tensors[:, 0], bins=xedges)
 ax2.hist(analysis.inertia_tensors[:, 1], bins=yedges)
 ax3.hist(analysis.inertia_tensors[:, 2], bins=zedges)
@@ -395,4 +394,4 @@ print(H.shape)
 # fig, ax = plt.subplots(subplot_kw={'projection': ccrs.EckertIV()})
 # add_reference_to_map(ax)
 #
-# plt.savefig('/mnt/data/kevin/xplor_analysis_files/surface_coverage_k6.png')
+# plt.savefig(f"{Path(xplor.__file__).parent.parent}/xplor_analysis_files/surface_coverage_k6.png")

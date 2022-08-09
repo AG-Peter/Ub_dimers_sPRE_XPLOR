@@ -1,4 +1,6 @@
 import glob, errno, os, sys, dateutil
+from pathlib import Path
+from .get_file import get_xplor_init
 
 __all__ = ['delete_old_csvs']
 
@@ -34,7 +36,7 @@ def get_local_or_proj_file(files):
         return glob_files
 
 
-def make_empty_tbl_file(out_file='/home/kevin/git/xplor_functions/xplor/data/diUbi_empty.tbl'):
+def make_empty_tbl_file(out_file=f"{Path(get_xplor_init()).parent.parent}/xplor/data/diUbi_empty.tbl"):
     lines = []
     from .functions.parse_input_files.parse_input_files import label
     for i in range(152):
@@ -65,7 +67,7 @@ def get_iso_time(in_str):
     return time
 
 
-def delete_old_csvs(df_outdir='/home/kevin/projects/tobias_schneider/values_from_every_frame/from_package/',
+def delete_old_csvs(df_outdir=f"{Path(get_xplor_init()).parent.parent}/data/values_from_every_frame/from_package/",
                    suffix='_df_no_conect.csv', keep=2):
     """Deletes old unwanted csv's.
 

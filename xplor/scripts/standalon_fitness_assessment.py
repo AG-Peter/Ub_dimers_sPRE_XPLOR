@@ -74,9 +74,9 @@ def main(aa_df, exp_values, exclude_data,
          overwrite=False, soft_overwrite=True, parallel=True):
     
     if not parallel:
-        json_savefile = '/home/kevin/git/xplor_functions/xplor/data/quality_factors_with_fixed_normalization_pandas_native.json'
+        json_savefile = f"{Path(xplor.__file__).parent.parent}/xplor/data/quality_factors_with_fixed_normalization_pandas_native.json"
     else:
-        json_savefile = '/home/kevin/git/xplor_functions/xplor/data/quality_factors_with_fixed_normalization_pandas_native_parallel.json'
+        json_savefile = f"{Path(xplor.__file__).parent.parent}/xplor/data/quality_factors_with_fixed_normalization_pandas_native_parallel.json"
 
     quality_factor_means = {ubq_site: [] for ubq_site in UBQ_SITES}
     if not os.path.isfile(json_savefile) or (overwrite and not soft_overwrite):
@@ -166,7 +166,7 @@ if __name__ == '__main__':
     not_exp_values = exp_values == 0
     exclude_data = fast_exchangers | not_exp_values
     
-    aa_df = pd.read_hdf('/home/kevin/git/xplor_functions/xplor/data/all_frames_sPRE_sim.h5', 'aa_df')
+    aa_df = pd.read_hdf(f"{Path(xplor.__file__).parent.parent}/xplor/data/all_frames_sPRE_sim.h5", 'aa_df')
     main(aa_df, exp_values, exclude_data)
 
 # main(aa_df, exp_values, exclude_data)

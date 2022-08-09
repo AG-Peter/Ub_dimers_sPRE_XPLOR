@@ -6,9 +6,9 @@ import glob
 import pandas as pd
 
 # %% load a diUbi aa traj and check, where there are GLQ and LYQ
-file = glob.glob('/home/andrejb/Research/SIMS/2017_04_27_G_2ub_k6_01_01/*.gro')[0]
+file = glob.glob(f"{Path(xplor.__file__).parent.parent}/molsim/2017_04_27_G_2ub_k6_01_01/*.gro")[0]
 andrej_traj = md.load(file)
-kevin_traj = md.load('/home/kevin/projects/molsim/diUbi_aa/K6_0/init.gro')
+kevin_traj = md.load(f"{Path(xplor.__file__).parent.parent}/molsim/K6_0/init.gro")
 print(andrej_traj, kevin_traj)
 
 # %% iterate over resiudes
@@ -27,8 +27,8 @@ from xplor.functions.custom_gromacstopfile import CustomGromacsTopFile
 
 with Capturing() as output:
     top_aa = CustomGromacsTopFile(
-        f'/home/andrejb/Software/custom_tools/topology_builder/topologies/gromos54a7-isop/diUBQ_K6/system.top',
-        includeDir='/home/andrejb/Software/gmx_forcefields')
+        f"forcefields will be made available upon request/custom_tools/topology_builder/topologies/gromos54a7-isop/diUBQ_K6/system.top",
+        includeDir=f"forcefields will be made available upon request/gmx_forcefields")
 traj.top = md.Topology.from_openmm(top_aa.topology)
 
 isopeptide_indices = []
@@ -61,8 +61,8 @@ for index, value in series.iteritems():
 from xplor.functions.functions import datetime_windows_and_linux_compatible
 import pandas as pd
 now = datetime_windows_and_linux_compatible()
-new_filename = f'/home/kevin/projects/tobias_schneider/values_from_every_frame/from_package_all/{now}_df_no_conect.csv'
-df = pd.read_csv('/home/kevin/projects/tobias_schneider/values_from_every_frame/from_package_all/2021-10-13T16:19:28+02:00_df_no_conect.csv')
+new_filename = f"{Path(xplor.__file__).parent.parent}/data/values_from_every_frame/from_package_all/{now}_df_no_conect.csv"
+df = pd.read_csv(f"{Path(xplor.__file__).parent.parent}/data/values_from_every_frame/from_package_all/2021-10-13T16:19:28+02:00_df_no_conect.csv")
 df_copy = df.copy()
 
 prox_columns = [i for i in df.columns if 'prox' in i]

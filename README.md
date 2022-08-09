@@ -46,9 +46,15 @@ As this python package heavily relies on the software-package XPLOR, you need to
 ```python
 import numpy as np
 import os
-os.setenv('PYXPLOR_EXECUTABLE', '/path/to/pyxplor/executable')
+os.environ['PYXPLOR_EXECUTABLE'] = '/path/to/pyxplor/executable'
 import xplor
 xplor.functions.parallel_xplor(['k6'])
+```
+
+The same applies to XPLOR's `pdb2psf` program. Set it with:
+```python
+import os
+os.environ['PDB2PSF_EXECUTABLE'] = '/path/to/pdb2psf/executable'
 ```
 
 ## Analysis pipeline

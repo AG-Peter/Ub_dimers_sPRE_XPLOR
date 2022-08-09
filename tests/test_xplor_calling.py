@@ -17,8 +17,8 @@ class TestXPLORCorrectColumns(unittest.TestCase):
         self.assertTrue('usage: xplor_single_struct' in out, msg="xplor_single_struct script not configured correctly.")
     
     def test_columns(self):
-        traj_file = '/home/andrejb/Research/SIMS/2017_06_28_GfM_SMmin_rnd_k6_0/traj_nojump.xtc'
-        top_file = '/home/andrejb/Research/SIMS/2017_06_28_GfM_SMmin_rnd_k6_0/start.pdb'
+        traj_file = f"{Path(xplor.__file__).parent.parent}/molsim/2017_06_28_GfM_SMmin_rnd_k6_0/traj_nojump.xtc"
+        top_file = f"{Path(xplor.__file__).parent.parent}/molsim/2017_06_28_GfM_SMmin_rnd_k6_0/start.pdb"
         frame_no = 0
         frame = md.load_frame(traj_file, frame_no, top=top_file)
 

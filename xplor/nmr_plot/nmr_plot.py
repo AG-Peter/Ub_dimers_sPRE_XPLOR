@@ -18,6 +18,8 @@ import statsmodels.stats.api as sms
 from ..functions.functions import get_series_from_mdtraj, Capturing
 from ..functions.custom_gromacstopfile import CustomGromacsTopFile
 from ..misc import get_iso_time
+from pathlib import Path
+from ..get_file import get_xplor_init
 
 import matplotlib.text as mpl_text
 
@@ -376,8 +378,8 @@ def plot_single_struct_sPRE(axes, traj, factors, ubq_site, color, positions=None
     traj = traj.traj
     with Capturing() as output:
         top_aa = CustomGromacsTopFile(
-            f'/home/andrejb/Software/custom_tools/topology_builder/topologies/gromos54a7-isop/diUBQ_{ubq_site.upper()}/system.top',
-            includeDir='/home/andrejb/Software/gmx_forcefields')
+            f"{Path(get_xplor_init()).parent.parent}/topologies/diUBQ_{ubq_site.upper()}/system.top",
+            includeDir={Path(get_xplor_init()).parent.parent}/topologies/forcefields)
     traj.top = md.Topology.from_openmm(top_aa.topology)
 
     isopeptide_indices = []
@@ -425,7 +427,7 @@ def try_to_plot_15N(axes, ubq_site, df=None, mhz=600, cmap='Blues', cbar=True, a
     if positions is None:
         positions = ['proximal', 'distal']
     if df is None:
-        files = glob.glob('/home/kevin/projects/tobias_schneider/values_from_every_frame/from_package_with_conect/*.csv')
+        files = glob.glob(f"{Path(get_xplor_init()).parent.parent}/data/values_from_every_frame/from_package_with_conect/*.csv")
         sorted_files = sorted(files, key=get_iso_time)
         df = pd.read_csv(sorted_files[-1], index_col=0)
         df = df.fillna(0)

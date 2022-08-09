@@ -33,6 +33,7 @@ import cartopy.crs as ccrs
 from ..misc import get_iso_time
 from pprint import pprint
 from collections import OrderedDict
+from ..get_file import get_xplor_init
 
 
 ################################################################################
@@ -324,9 +325,9 @@ def center_ref_and_load(overwrite: bool = False) -> Tuple[mdtraj.Trajectory, np.
             np.ndarray: The names of the residues.
 
     """
-    centered_1UBQ = '/mnt/data/kevin/xplor_analysis_files/centered1UBQ.pdb'
+    centered_1UBQ = f"{Path(get_xplor_init()).parent.parent}/xplor_analysis_files/centered1UBQ.pdb"
     if not os.path.isfile(centered_1UBQ) or overwrite:
-        traj = md.load_pdb('/home/kevin/1UBQ.pdb')
+        traj = md.load_pdb(f"{Path(get_xplor_init()).parent.parent}/xplor/data/1UBQ.pdb")
         traj = traj.atom_slice(traj.top.select('protein'))
         align_principal_axes_mdtraj(traj)
         traj.center_coordinates()
@@ -465,8 +466,8 @@ def replace_top_with_gromos(traj, ubq_site):
     from .custom_gromacstopfile import CustomGromacsTopFile
     with Capturing() as output:
         top_aa = CustomGromacsTopFile(
-            f'/home/andrejb/Software/custom_tools/topology_builder/topologies/gromos54a7-isop/diUBQ_{ubq_site.upper()}/system.top',
-            includeDir='/home/andrejb/Software/gmx_forcefields')
+            f"{Path(get_xplor_init()).parent.parent}/topologies/diUBQ_{ubq_site.upper()}/system.top",
+            includeDir={Path(get_xplor_init()).parent.parent}/topologies/forcefields)
     top = md.Topology.from_openmm(top_aa.topology)
     traj.top = top
     return traj
@@ -481,19 +482,18 @@ def h_bond_too_long(traj, bond):
 
 def fix_pdb(traj, file, ubq_site, threshold=3, overwrite=False, debug=None):
     print(file)
-    sys.path.insert(0, f'/home/kevin/projects/anastasia')
     bond_lengths = {'C-C': 0.153, 'C-O': 0.123, 'O-C': 0.123, 'C-N': 0.134,
                     'N-C': 0.134, 'N-H': 0.1, 'H-N': 0.1, 'C-H': 0.109}
-    from rotate import _get_far_and_near_networkx
+    from .rotate import _get_far_and_near_networkx
     from transformations import translation_matrix
     traj = replace_top_with_gromos(traj, ubq_site)
     original_atom_counts = copy.deepcopy(traj.n_atoms)
-    if debug == '/home/andrejb/Research/SIMS/2017_02_14_G_2ub_k33_02_03/traj_nojump.xtc':
+    if debug == f"{Path(get_xplor_init()).parent.parent}/molsim/2017_02_14_G_2ub_k33_02_03/traj_nojump.xtc":
         print(f"For {debug}, the current atom count is {traj.n_atoms}.")
     for i in range(traj.n_frames):
         frame = traj[i]
         for bond in frame.top.bonds:
-            if debug == '/home/andrejb/Research/SIMS/2017_02_14_G_2ub_k33_02_03/traj_nojump.xtc':
+            if debug == f"{Path(get_xplor_init()).parent.parent}/molsim/2017_02_14_G_2ub_k33_02_03/traj_nojump.xtc":
                 print(f"At frame {i}. For {debug}, the current atom count is {traj.n_atoms}.")
             bond_length = get_bond_length(frame, bond)
 
@@ -649,9 +649,9 @@ def get_mean_abs_diff(sim, exp, ubq_site=None,
 
 class EncodermapSPREAnalysis:
     def __init__(self, ubq_sites,
-                 sim_dirs=['/home/andrejb/Research/SIMS/2017_*',
-                          '/home/kevin/projects/molsim/diUbi_aa/'],
-                 analysis_dir='/mnt/data/kevin/xplor_analysis_files/'):
+                 sim_dirs=[f"{Path(get_xplor_init()).parent.parent}/molsim/2017_*",
+                          f"{Path(get_xplor_init()).parent.parent}/molsim"],
+                 analysis_dir=f"{Path(get_xplor_init()).parent.parent}/molsim"):
         """Sets the ubq_sites of the singleton.
 
         Args:
@@ -674,15 +674,15 @@ class EncodermapSPREAnalysis:
 
     @property
     def base_traj_k6(self):
-        return md.load('/home/andrejb/Software/custom_tools/topology_builder/topologies/gromos54a7-isop/diUBQ_K6/0.pdb')
+        return md.load(f"{Path(get_xplor_init()).parent.parent}/topologies/diUBQ_K6/0.pdb")
 
     @property
     def base_traj_k29(self):
-        return md.load('/home/andrejb/Software/custom_tools/topology_builder/topologies/gromos54a7-isop/diUBQ_K29/0.pdb')
+        return md.load(f"{Path(get_xplor_init()).parent.parent}/topologies/diUBQ_K29/0.pdb")
 
     @property
     def base_traj_k33(self):
-        return md.load('/home/andrejb/Software/custom_tools/topology_builder/topologies/gromos54a7-isop/diUBQ_K33/0.pdb')
+        return md.load(f"{Path(get_xplor_init()).parent.parent}/topologies/diUBQ_K33/0.pdb")
 
     @property
     def df_obs(self):
@@ -705,8 +705,8 @@ class EncodermapSPREAnalysis:
 
     @property
     def large_df_file(self):
-        return '/mnt/data/kevin/xplor_analysis_files/lowd_and_xplor_df_new_psol.csv'
-        # return '/mnt/data/kevin/xplor_analysis_files/lowd_and_xplor_df.csv'
+        return f"{Path(get_xplor_init()).parent.parent}/xplor_analysis_files/lowd_and_xplor_df_new_psol.csv"
+        # return f"{Path(get_xplor_init()).parent.parent}/xplor_analysis_files/lowd_and_xplor_df.csv"
 
     @property
     def centers_prox(self):
@@ -724,33 +724,33 @@ class EncodermapSPREAnalysis:
         if csv == 'conect':
             raise Exception("Need to reorder prox and dist")
             files = glob.glob(
-                '/home/kevin/projects/tobias_schneider/values_from_every_frame/from_package_with_conect/*.csv')
+                f"{Path(get_xplor_init()).parent.parent}/data/values_from_every_frame/from_package_with_conect/*.csv")
             sorted_files = sorted(files, key=get_iso_time)
             csv = sorted_files[-1]
             time = get_iso_time(csv)
             assert time > datetime.datetime.strptime("2021-03-11T00:00:00+0100", "%Y-%m-%dT%H:%M:%S%z")
         elif csv == 'no_conect':
             files = glob.glob(
-                '/home/kevin/projects/tobias_schneider/values_from_every_frame/from_package/*.csv')
+                f"{Path(get_xplor_init()).parent.parent}/data/values_from_every_frame/from_package/*.csv")
             sorted_files = sorted(files, key=get_iso_time)
             csv = sorted_files[-1]
             time = get_iso_time(csv)
             assert time > datetime.datetime.strptime("2021-03-11T00:00:00+0100", "%Y-%m-%dT%H:%M:%S%z")
         elif csv == 'all_frames':
             files = glob.glob(
-                '/home/kevin/projects/tobias_schneider/values_from_every_frame/from_package_all/*.csv')
+                f"{Path(get_xplor_init()).parent.parent}/data/values_from_every_frame/from_package_all/*.csv")
             sorted_files = sorted(files, key=get_iso_time)
             csv = sorted_files[-1]
             time = get_iso_time(csv)
             assert time > datetime.datetime.strptime("2021-03-11T00:00:00+0100", "%Y-%m-%dT%H:%M:%S%z")
         elif csv == 'legacy':
             raise Exception("Need to reorder prox and dist")
-            csv = '/home/kevin/projects/tobias_schneider/values_from_every_frame/from_package/2021-07-23T16:49:44+02:00_df_no_conect.csv'
+            csv = f"{Path(get_xplor_init()).parent.parent}/data/values_from_every_frame/from_package/2021-07-23T16:49:44+02:00_df_no_conect.csv"
             time = get_iso_time(csv)
             assert time > datetime.datetime.strptime("2021-03-11T00:00:00+0100", "%Y-%m-%dT%H:%M:%S%z")
         elif csv == 'new_psol':
             files = glob.glob(
-                '/home/kevin/projects/tobias_schneider/values_from_every_frame/new_psol_all/*.csv')
+                f"{Path(get_xplor_init()).parent.parent}/data/values_from_every_frame/new_psol_all/*.csv")
             sorted_files = sorted(files, key=get_iso_time)
             csv = sorted_files[-1]
             time = get_iso_time(csv)
@@ -799,7 +799,7 @@ class EncodermapSPREAnalysis:
         if type_of_corr is None:
             type_of_corr = ['median_all', 'cluster_mean', 'cluster_mean', 'cluster_mean', 'cluster_combination', 'all_combination']
         for ubq_site_counting, ubq_site in enumerate(self.ubq_sites):
-            image_name = f"/home/kevin/projects/tobias_schneider/cluster_analysis_with_new_psol/{ubq_site}_correlation_regression.png"
+            image_name = f"{Path(get_xplor_init()).parent.parent}/data/cluster_analysis_with_new_psol/{ubq_site}_correlation_regression.png"
             if os.path.isfile and not overwrite:
                 print(f"File at {image_name} already exists.")
                 continue
@@ -832,7 +832,7 @@ class EncodermapSPREAnalysis:
             print('ncols: ', ncols, 'nrows: ', nrows)
 
             with pd.HDFStore(
-                    '/home/kevin/projects/tobias_schneider/new_images/clusters.h5') as store:
+                    f"{Path(get_xplor_init()).parent.parent}/data/new_images/clusters.h5") as store:
                 df, metadata = h5load(store)
 
             cluster_df = df[df['ubq site'] == ubq_site].copy()
@@ -973,14 +973,14 @@ class EncodermapSPREAnalysis:
                           check_empty_and_zero_columns=True):
         from scipy.stats import pearsonr
         with pd.HDFStore(
-                '/home/kevin/projects/tobias_schneider/new_images/clusters.h5') as store:
+                f"{Path(get_xplor_init()).parent.parent}/data/new_images/clusters.h5") as store:
             df, metadata = h5load(store)
             # old line was
-            # '/home/kevin/projects/tobias_schneider/new_images/clusters_with_and_without_coeff.h5') as store:
+            # f"{Path(get_xplor_init()).parent.parent}/data/new_images/clusters_with_and_without_coeff.h5") as store:
             # changed due to fixing normalization issues
 
         for ubq_count, ubq_site in enumerate(self.ubq_sites):
-            csv_file = f'/home/kevin/projects/tobias_schneider/cluster_analysis_with_new_psol/per_residue_values_and_combinations_{ubq_site}.csv'
+            csv_file = f"{Path(get_xplor_init()).parent.parent}/data/cluster_analysis_with_new_psol/per_residue_values_and_combinations_{ubq_site}.csv"
             linear_combination, cluster_means_norm, cluster_mean_not_norm = make_linear_combination_from_clusters(None,
                                                                                       self.aa_df,
                                                                                       self.df_obs,
@@ -1181,8 +1181,8 @@ class EncodermapSPREAnalysis:
 
             with Capturing() as output:
                 top_aa = CustomGromacsTopFile(
-                    f'/home/andrejb/Software/custom_tools/topology_builder/topologies/gromos54a7-isop/diUBQ_{ubq_site.upper()}/system.top',
-                    includeDir='/home/andrejb/Software/gmx_forcefields')
+                    f"{Path(get_xplor_init()).parent.parent}/topologies/diUBQ_{ubq_site.upper()}/system.top",
+                    includeDir={Path(get_xplor_init()).parent.parent}/topologies/forcefields)
             traj.top = md.Topology.from_openmm(top_aa.topology)
 
             isopeptide_indices = []
@@ -1214,7 +1214,7 @@ class EncodermapSPREAnalysis:
     def load_and_overwrite_sub_dfs_for_saving(self):
         """The initial add_centroids_to_df seems to have killed THR9. How could this happen?"""
         for ubq_num, ubq_site in enumerate(self.ubq_sites):
-            csv_file = f'/mnt/data/kevin/xplor_analysis_files/sub_df_for_saving_{ubq_site}.csv'
+            csv_file = f"{Path(get_xplor_init()).parent.parent}/xplor_analysis_files/sub_df_for_saving_{ubq_site}.csv"
             sub_df = pd.read_csv(csv_file, index_col=0)
             try:
                 ensure_thr9_is_nonzero(sub_df)
@@ -1240,7 +1240,7 @@ class EncodermapSPREAnalysis:
             sub_dfs = []
             for ubq_num, ubq_site in enumerate(self.ubq_sites):
                 self.ubq_sites = [ubq_site]
-                if not os.path.isfile(f'/mnt/data/kevin/xplor_analysis_files/sub_df_for_saving_{ubq_site}.csv') or overwrite_sub_dfs:
+                if not os.path.isfile(f"{Path(get_xplor_init()).parent.parent}/xplor_analysis_files/sub_df_for_saving_{ubq_site}.csv") or overwrite_sub_dfs:
                     sub_df = self.aa_df[self.aa_df['ubq_site'] == ubq_site]
                     ensure_thr9_is_nonzero(sub_df)
                     sub_df['geom_centroid'] = -1
@@ -1250,7 +1250,7 @@ class EncodermapSPREAnalysis:
                     sub_df['ensemble_percent'] = 0
                     sub_df['internal_rmsd'] = 0.0
                 else:
-                    sub_df = pd.read_csv(f'/mnt/data/kevin/xplor_analysis_files/sub_df_for_saving_{ubq_site}.csv', index_col=0)
+                    sub_df = pd.read_csv(f"{Path(get_xplor_init()).parent.parent}/xplor_analysis_files/sub_df_for_saving_{ubq_site}.csv", index_col=0)
                     ensure_thr9_is_nonzero(sub_df)
                     assert 'internal_rmsd' in sub_df
                 if testing:
@@ -1309,7 +1309,7 @@ class EncodermapSPREAnalysis:
                     # align to cryst again
                     # only needed for actual saving
                     # assert not prox_is_first(dummy_traj)
-                    # cryst = md.load('/home/kevin/1UBQ.pdb')
+                    # cryst = md.load({Path(get_xplor_init()).parent.parent}/xplor/data/1UBQ.pdb)
                     # dummy_traj.superpose(reference=cryst, atom_indices=dummy_traj.top.select('name CA and resid >= 76'),
                     #                      ref_atom_indices=cryst.top.select('name CA'))
 
@@ -1367,7 +1367,7 @@ class EncodermapSPREAnalysis:
                     if hasattr(self, 'aa_references'): del self.aa_references
                     if hasattr(self, 'cg_references'): del self.cg_references
                 sub_dfs.append(sub_df)
-                # sub_df.to_csv(f'/mnt/data/kevin/xplor_analysis_files/sub_df_for_saving_{ubq_site}.csv')
+                # sub_df.to_csv(f"{Path(get_xplor_init()).parent.parent}/xplor_analysis_files/sub_df_for_saving_{ubq_site}.csv")
             else:
                 assert len(sub_dfs) == len(copied_ubq_sites)
                 new_df = pd.concat(sub_dfs)
@@ -1420,7 +1420,7 @@ class EncodermapSPREAnalysis:
                 if count_id == -1:
                     continue
                 # df = sub_df[sub_df['count_id'] == count_id]
-                pdb_file = f'/home/kevin/projects/tobias_schneider/cluster_analysis_with_new_psol/{ubq_site}/cluster_{count_id}/cluster.pdb'
+                pdb_file = f"{Path(get_xplor_init()).parent.parent}/data/cluster_analysis_with_new_psol/{ubq_site}/cluster_{count_id}/cluster.pdb"
                 traj = md.load(pdb_file)
                 if ubq_site == 'k33':
                     if count_id in [12, 16, 18, 22]:
@@ -1430,13 +1430,13 @@ class EncodermapSPREAnalysis:
 
     def analyze_mean_abs_diff_all(self, overwrite=False):
         for i, ubq_site in enumerate(self.ubq_sites):
-            image_name = f"/home/kevin/projects/tobias_schneider/test_sPRE_values/{ubq_site}_scatter.png"
+            image_name = f"{Path(get_xplor_init()).parent.parent}/data/test_sPRE_values/{ubq_site}_scatter.png"
             os.makedirs(os.path.split(image_name)[0], exist_ok=True)
             sub_df = self.aa_df[self.aa_df['ubq_site'] == ubq_site]
             print(len(sub_df))
             # self.check_normalization()
-            if 'mean_abs_diff' in sub_df:
-                redo = (sub_df['mean_abs_diff'] == 0.0).all(None)
+            if 'mean_abs_dif' in sub_df:
+                redo = (sub_df['mean_abs_dif'] == 0.0).all(None)
             else:
                 redo = True
             if redo or overwrite:
@@ -1450,11 +1450,11 @@ class EncodermapSPREAnalysis:
                 abs_ = abs(diff)
                 mean = np.mean(abs_, axis=1)
                 assert len(mean) == len(sub_df)
-                sub_df['mean_abs_diff'] = mean
+                sub_df['mean_abs_dif'] = mean
                 self.aa_df = self.aa_df.combine_first(sub_df)
 
             plt.close('all')
-            plt.scatter(sub_df['x'], sub_df['y'], c=sub_df['mean_abs_diff'], cmap='viridis', s=5)
+            plt.scatter(sub_df['x'], sub_df['y'], c=sub_df['mean_abs_dif'], cmap='viridis', s=5)
             plt.xlabel('x in a.u.')
             plt.ylabel('y in a.u.')
             plt.colorbar(label='mean abs difference between sim and exp')
@@ -1623,7 +1623,7 @@ class EncodermapSPREAnalysis:
         return True
 
     def write_clusters(self, directory, clusters, which, max_frames=500, pdb='rmsd_centroid', align_to_cryst=True):
-        df_file = '/home/kevin/projects/tobias_schneider/new_images/clusters.h5'
+        df_file = f"{Path(get_xplor_init()).parent.parent}/data/new_images/clusters.h5"
         with pd.HDFStore(df_file) as store:
             df, metadata = h5load(store)
 
@@ -1664,7 +1664,7 @@ class EncodermapSPREAnalysis:
 
                 # align to cryst again
                 assert not prox_is_first(dummy_traj)
-                cryst = md.load('/home/kevin/1UBQ.pdb')
+                cryst = md.load(f"{Path(get_xplor_init()).parent.parent}/xplor/data/1UBQ.pdb")
                 dummy_traj.superpose(reference=cryst, atom_indices=dummy_traj.top.select('name CA and resid >= 76'),
                                      ref_atom_indices=cryst.top.select('name CA'))
                 if one_bond_too_long(dummy_traj):
@@ -1786,7 +1786,7 @@ class EncodermapSPREAnalysis:
                                  overwrite_final_correlation=False,
                                  coeff_threshold=0.1):
         ensure_thr9_is_nonzero(self.aa_df)
-        df_file = '/home/kevin/projects/tobias_schneider/new_images/clusters.h5'
+        df_file = f"{Path(get_xplor_init()).parent.parent}/data/new_images/clusters.h5"
 
         if not hasattr(self, 'aa'):
             self.aa = {ubq_site: np.load(os.path.join(self.analysis_dir, f'cluster_membership_aa_{ubq_site}.npy')) for ubq_site in self.ubq_sites}
@@ -1834,7 +1834,7 @@ class EncodermapSPREAnalysis:
 
                 df_data = {'cluster id': [], 'N frames': [], 'ensemble %': [],
                            'ubq site': [], 'aa %': [], 'internal RMSD': [], 'coefficient': [],
-                           'mean abs diff to exp w/ coeff': [], 'mean abs diff to exp w/o coeff': []}
+                           'mean abs diff to exp w/ coef': [], 'mean abs diff to exp w/o coef': []}
 
                 for cluster_num, cluster_mean in cluster_means.iterrows():
                     coefficient = linear_combination[cluster_num]
@@ -1874,8 +1874,8 @@ class EncodermapSPREAnalysis:
                     df_data['aa %'].append(aa_percent)
                     df_data['internal RMSD'].append(internal_rmsd.values[0])
                     df_data['coefficient'].append(coefficient)
-                    df_data['mean abs diff to exp w/ coeff'].append(mean_abs_diff)
-                    df_data['mean abs diff to exp w/o coeff'].append(mean_abs_diff_no_coeff)
+                    df_data['mean abs diff to exp w/ coef'].append(mean_abs_diff)
+                    df_data['mean abs diff to exp w/o coef'].append(mean_abs_diff_no_coeff)
                 if ubq_num == 0:
                     df = pd.DataFrame(df_data)
                 else:
@@ -1900,7 +1900,7 @@ class EncodermapSPREAnalysis:
                     break
                 cluster_num = row['cluster id']
                 count_id = np.where(np.sort(sub_df['N frames'])[::-1] == row['N frames'])[0][0]
-                cluster_dir = f'/home/kevin/projects/tobias_schneider/cluster_analysis_with_new_psol/{ubq_site}/cluster_{count_id}/'
+                cluster_dir = f"{Path(get_xplor_init()).parent.parent}/data/cluster_analysis_with_new_psol/{ubq_site}/cluster_{count_id}/"
                 os.makedirs(cluster_dir, exist_ok=True)
                 image_file = os.path.join(cluster_dir, 'polar_plot.png')
                 pdb_file_out = os.path.join(cluster_dir, 'cluster.pdb')
@@ -1952,7 +1952,7 @@ class EncodermapSPREAnalysis:
                     aa_df_row = self.aa_df[(self.aa_df['rmsd_centroid'] == cluster_num) & (self.aa_df['ubq_site'] == ubq_site)]
                     xtc_file, top_file, frame = aa_df_row[['traj_file', 'top_file', 'frame']].values[0]
                     centroid = md.load_frame(xtc_file, frame, top=top_file)
-                    cryst = md.load('/home/kevin/1UBQ.pdb')
+                    cryst = md.load(f"{Path(get_xplor_init()).parent.parent}/xplor/data/1UBQ.pdb")
                     centroid.superpose(reference=cryst, atom_indices=centroid.top.select('name CA and resid >= 76'),
                                        ref_atom_indices=cryst.top.select('name CA'))
                     if one_bond_too_long(centroid, 3):
@@ -1975,7 +1975,7 @@ class EncodermapSPREAnalysis:
                     traj.save_xtc(xtc_file_out)
 
                 # if not os.path.isfile(cluster_pdb_file) or overwrite or overwrite_500_frames:
-                #     cryst = md.load('/home/kevin/1UBQ.pdb')
+                #     cryst = md.load({Path(get_xplor_init()).parent.parent}/xplor/data/1UBQ.pdb)
                 #     aa_df_rows = self.aa_df[(self.aa_df['cluster_membership'] == cluster_num) & (self.aa_df['ubq_site'] == ubq_site)]
                 #     idx = np.round(np.linspace(0, len(aa_df_rows) - 1, 500)).astype(int)
                 #     aa_df_rows = aa_df_rows.iloc[idx]
@@ -2025,9 +2025,9 @@ class EncodermapSPREAnalysis:
             cluster_combination_str = '_and_'.join(np.sort(count_ids[where]).astype(str))
             cluster_combination_str_no_underscore = ' and '.join(np.sort(count_ids[where]).astype(str))
 
-            final_combination_image = f'/home/kevin/projects/tobias_schneider/cluster_analysis_with_new_psol/{ubq_site}/combination_of_clusters_{cluster_combination_str}.png'
-            final_combination_image_all = f'/home/kevin/projects/tobias_schneider/cluster_analysis_with_new_psol/{ubq_site}/all_sims_confidence.png'
-            final_correlation_image_all = f'/home/kevin/projects/tobias_schneider/cluster_analysis_with_new_psol/{ubq_site}/correlation_plot.png'
+            final_combination_image = f"{Path(get_xplor_init()).parent.parent}/data/cluster_analysis_with_new_psol/{ubq_site}/combination_of_clusters_{cluster_combination_str}.png"
+            final_combination_image_all = f"{Path(get_xplor_init()).parent.parent}/data/cluster_analysis_with_new_psol/{ubq_site}/all_sims_confidence.png"
+            final_correlation_image_all = f"{Path(get_xplor_init()).parent.parent}/data/cluster_analysis_with_new_psol/{ubq_site}/correlation_plot.png"
             exp_value = self.df_obs[ubq_site][self.df_obs[ubq_site].index.str.contains('sPRE')].values
             if not os.path.isfile(final_combination_image) or overwrite_final_combination:
                 plt.close('all')
@@ -2219,13 +2219,13 @@ class EncodermapSPREAnalysis:
                 # define names
                 traj_file = dir_ + '/traj_nojump.xtc'
                 basename = traj_file.split('/')[-2]
-                if 'andrejb' in traj_file:
+                if '2017' in traj_file:
                     top_file = dir_ + '/start.pdb'
                 else:
                     top_file = dir_ + '/init.gro'
 
                 is_aa = True
-                if 'andrejb' in traj_file:
+                if '2017' in traj_file:
                     if not is_aa_sim(traj_file): is_aa = False
 
                 if is_aa:
@@ -2284,8 +2284,8 @@ class EncodermapSPREAnalysis:
 
             if not os.path.isfile(aa_highd_file) or overwrite:
                 with Capturing() as output:
-                    top_aa = CustomGromacsTopFile(f'/home/andrejb/Software/custom_tools/topology_builder/topologies/gromos54a7-isop/diUBQ_{ubq_site.upper()}/system.top',
-                                                  includeDir='/home/andrejb/Software/gmx_forcefields')
+                    top_aa = CustomGromacsTopFile(f"{Path(get_xplor_init()).parent.parent}/topologies/diUBQ_{ubq_site.upper()}/system.top",
+                                                  includeDir={Path(get_xplor_init()).parent.parent}/topologies/forcefields)
                 top = md.Topology.from_openmm(top_aa.topology)
 
                 CAs_prox = top.select('name CA and resid >= 76')
@@ -2521,7 +2521,7 @@ class EncodermapSPREAnalysis:
                                   self.aa_df.columns)))
 
                 # define out
-                cluster_analysis_outdir = f'/home/kevin/projects/tobias_schneider/cluster_analysis_with_new_psol/{ubq_site}/cluster_{count_id}'
+                cluster_analysis_outdir = f"{Path(get_xplor_init()).parent.parent}/data/cluster_analysis_with_new_psol/{ubq_site}/cluster_{count_id}"
                 os.makedirs(cluster_analysis_outdir, exist_ok=True)
                 image_file = os.path.join(cluster_analysis_outdir, f'{ubq_site}_cluster_{count_id}_summary.png')
 
@@ -2598,7 +2598,7 @@ class EncodermapSPREAnalysis:
             #     df_.to_excel(excel_file, index=False)
             #     raise Exception("STOP")
 
-    def stack_all_clusters(self, dir_='/home/kevin/projects/tobias_schneider/cluster_analysis_with_new_psol/'):
+    def stack_all_clusters(self, dir_=f"{Path(get_xplor_init()).parent.parent}/data/cluster_analysis_with_new_psol/"):
         for file in glob.glob(dir_ + 'k*/cluster*/*500*.pdb'):
             print(file)
 
@@ -2730,7 +2730,7 @@ class EncodermapSPREAnalysis:
             clustered_ax = fig.add_subplot(left[1, 1])
             scatter_cluster_ax = fig.add_subplot(left[2, 0])
             render_ax = fig.add_subplot(left[2, 1])
-            render_ax.axis('off')
+            render_ax.axis('of')
             sPRE_vs_prox_ax = fig.add_subplot(right[0, 0])
             sPRE_vs_dist_ax = fig.add_subplot(right[1, 0])
         else:
@@ -2760,7 +2760,7 @@ class EncodermapSPREAnalysis:
             if i > 0:
                 txt = ax.text(0.02, 0.85, ascii_uppercase[i - 1], transform=ax.transAxes, fontsize=26, va='center', ha='center', color='k')
             if 'render' in title.lower() or 'general' in title.lower():
-                ax.axis('off')
+                ax.axis('of')
 
         # text
         sum_cluster = len(cg_cluster_points_ind) + len(aa_cluster_points_ind)
@@ -3123,7 +3123,7 @@ class EncodermapSPREAnalysis:
             print(f"Missing {missing_sites} from file {json_savefile}. Maybe some analysis is still running.")
 
         for ubq_site in sites:
-            image_file = f'/home/kevin/projects/tobias_schneider/cluster_analysis_with_new_psol/fitness_assessment_{ubq_site}.png'
+            image_file = f"{Path(get_xplor_init()).parent.parent}/data/cluster_analysis_with_new_psol/fitness_assessment_{ubq_site}.png"
             if not os.path.isfile(image_file) or overwrite or overwrite_image:
                 plt.close('all')
                 # data = np.array(self.quality_factor_means[ubq_site])
@@ -3270,7 +3270,7 @@ class EncodermapSPREAnalysis:
 
     def count_id_from_cluster_id(self, ubq_site):
         if not hasattr(self, 'cluster_df'):
-            df_file = '/home/kevin/projects/tobias_schneider/new_images/clusters.h5'
+            df_file = f"{Path(get_xplor_init()).parent.parent}/data/new_images/clusters.h5"
             with pd.HDFStore(df_file) as store:
                 cluster_df, metadata = h5load(store)
 
@@ -3292,7 +3292,7 @@ class EncodermapSPREAnalysis:
 
     def cluster_id_from_count_id(self, ubq_site):
         if not hasattr(self, 'cluster_df'):
-            df_file = '/home/kevin/projects/tobias_schneider/new_images/clusters.h5'
+            df_file = f"{Path(get_xplor_init()).parent.parent}/data/new_images/clusters.h5"
             with pd.HDFStore(df_file) as store:
                 cluster_df, metadata = h5load(store)
 
@@ -3370,7 +3370,7 @@ class EncodermapSPREAnalysis:
         for ubq_site in self.ubq_sites:
             if self.polar_coordinates_aa[ubq_site] == [[], []] or overwrite:
                 image_file = os.path.join(self.analysis_dir, f'surface_coverage_{ubq_site}.png')
-                image_file2 = f'/home/kevin/projects/tobias_schneider/cluster_analysis_with_new_psol/{ubq_site}/surface_coverage_{ubq_site}.png'
+                image_file2 = f"{Path(get_xplor_init()).parent.parent}/data/cluster_analysis_with_new_psol/{ubq_site}/surface_coverage_{ubq_site}.png"
                 polar_coordinates_aa_file = os.path.join(self.analysis_dir, f'polar_coordinates_aa_{ubq_site}.npy')
                 polar_coordinates_cg_file = os.path.join(self.analysis_dir, f'polar_coordinates_cg_{ubq_site}.npy')
 
@@ -3616,7 +3616,7 @@ class EncodermapSPREAnalysis:
                     ax.set_ylim(yedges[[0, -1]])
                     ax.set_zlim(zedges[[0, -1]])
 
-                    # plt.savefig('/mnt/data/kevin/xplor_analysis_files/inertia_distribution.png')
+                    # plt.savefig(f"{Path(get_xplor_init()).parent.parent}/xplor_analysis_files/inertia_distribution.png")
                     ax1.hist(self.inertia_tensors[ubq_site][:, 0], bins=xedges, density=True)
                     ax2.hist(self.inertia_tensors[ubq_site][:, 1], bins=yedges, density=True)
                     ax3.hist(self.inertia_tensors[ubq_site][:, 2], bins=zedges, density=True)
