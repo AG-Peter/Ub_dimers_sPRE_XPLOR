@@ -2,16 +2,14 @@
 
 Repository containing the code for an upcoming publication.
 
-## Small sample dataset
-
-A small sample dataset of MD simulations is available under https://sawade.io/Ub_dimers_sPRE_XPLOR/
-Please refer to the publication for simulation details and software versions.
-
 ## System requirements
 
 OS: Linux
+
 Software dependencies can be found in `env.yml`. Rebuild the environment with `conda env create -f environment.yml`.
+
 Also, encodermap is needed. Install with `pip install encodermap`.
+
 XPLOR version 3.3
 
 ## Installation
@@ -32,7 +30,7 @@ This will add a python-package called `xplor` to your importable python packages
 
 ### Sample data
 
-To get sample data to test the code yourself, run these commands inside the `Ub_dimers_sPRE_XPLOR` repository (the download can take a while):
+A small sample dataset of MD simulations is available under https://sawade.io/Ub_dimers_sPRE_XPLOR/ Please refer to the publication for simulation details and software versions. To get the sample data to test the code yourself, run these commands inside the `Ub_dimers_sPRE_XPLOR` repository (the download can take a while):
 
 ```bash
 mkdir molsim && cd molsim
@@ -55,7 +53,7 @@ xplor.functions.parallel_xplor(['k6'])
 
 ## Analysis pipeline
 
-The Analysis pipeline starts with MD simulations, which will be made available upon request. A simulation is defined by a `.pdb` (topology) and `.xtc` (trajectory) file. Both of these files should reside in their own directory. The monolithic function `xplor.functions.parallel_xplor()` takes the argument `simdir` which should point to the directory containing all the other simulation directories.
+The Analysis pipeline starts with MD simulations. A small subset is available and the full set can be made available upon request. A simulation is defined by a `.pdb` (topology) and `.xtc` (trajectory) file. Both of these files should reside in their own directory. The monolithic function `xplor.functions.parallel_xplor()` takes the argument `simdir` which should point to the directory containing all the other simulation directories.
 
 ```python
 xplor.functions.parallel_xplor(['k6', 'k29', 'k33'], df_outdir='.', suffix='_df.csv', parallel=True)
