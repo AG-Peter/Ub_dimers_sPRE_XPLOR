@@ -31,12 +31,16 @@ class AnyObject:
         return self.label
 
 class AnyObjectHandler:
+    def __init__(self, bold=False, italic=False):
+        self.fontweight = 'bold' if bold else 'normal'
+        self.fontstyle = 'italic' if italic else 'normal'
+
     def legend_artist(self, legend, orig_handle, fontsize, handlebox):
         x0, y0 = handlebox.xdescent, handlebox.ydescent
         width, height = handlebox.width, handlebox.height
         patch = mpl_text.Text(x=0, y=0, text=orig_handle.my_text, color=orig_handle.my_color, verticalalignment=u'baseline', 
-                                horizontalalignment=u'left', multialignment=None, 
-                                fontproperties=None, rotation=0, linespacing=None, 
+                                horizontalalignment=u'left', multialignment=None, fontweight=self.fontweight,
+                                fontproperties=None, rotation=0, linespacing=None, fontstyle=self.fontstyle,  
                                 rotation_mode=None)
         handlebox.add_artist(patch)
         return patch
@@ -603,4 +607,3 @@ def fake_legend(ax, dict_of_fake_labels, ncols=None):
             ax.legend(handles=legend_elements, loc='upper center', ncol=int(len(legend_elements) / ncols))
 
     return ax
-

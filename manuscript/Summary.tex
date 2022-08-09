@@ -1,0 +1,596 @@
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Beamer Presentation
+% LaTeX Template
+% Version 1.0 (10/11/12)
+%
+% This template has been downloaded from:
+% http://www.LaTeXTemplates.com
+%
+% License:
+% CC BY-NC-SA 3.0 (http://creativecommons.org/licenses/by-nc-sa/3.0/)
+%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%----------------------------------------------------------------------------------------
+%	PACKAGES AND THEMES
+%----------------------------------------------------------------------------------------
+
+\documentclass{beamer}
+
+\addtobeamertemplate{navigation symbols}{}{%
+    \usebeamerfont{footline}%
+    \usebeamercolor[fg]{footline}%
+    \hspace{1em}%
+    \insertframenumber/\inserttotalframenumber
+}
+
+\mode<presentation> {
+
+% The Beamer class comes with a number of default slide themes
+% which change the colors and layouts of slides. Below this is a list
+% of all the themes, uncomment each in turn to see what they look like.
+
+%\usetheme{default}
+%\usetheme{AnnArbor}
+%\usetheme{Antibes}
+%\usetheme{Bergen}
+%\usetheme{Berkeley}
+%\usetheme{Berlin}
+%\usetheme{Boadilla}
+%\usetheme{CambridgeUS}
+%\usetheme{Copenhagen}
+%\usetheme{Darmstadt}
+%\usetheme{Dresden}
+%\usetheme{Frankfurt}
+%\usetheme{Goettingen}
+%\usetheme{Hannover}
+%\usetheme{Ilmenau}
+%\usetheme{JuanLesPins}
+%\usetheme{Luebeck}
+%\usetheme{Madrid}
+%\usetheme{Malmoe}
+%\usetheme{Marburg}
+%\usetheme{Montpellier}
+%\usetheme{PaloAlto}
+%\usetheme{Pittsburgh}
+%\usetheme{Rochester}
+%\usetheme{Singapore}
+%\usetheme{Szeged}
+%\usetheme{Warsaw}
+
+% As well as themes, the Beamer class has a number of color themes
+% for any slide theme. Uncomment each of these in turn to see how it
+% changes the colors of your current slide theme.
+
+%\usecolortheme{albatross}
+%\usecolortheme{beaver}
+%\usecolortheme{beetle}
+%\usecolortheme{crane}
+%\usecolortheme{dolphin}
+\usecolortheme{dove}
+%\usecolortheme{fly}
+%\usecolortheme{lily}
+%\usecolortheme{orchid}
+%\usecolortheme{rose}
+%\usecolortheme{seagull}
+%\usecolortheme{seahorse}
+%\usecolortheme{whale}
+%\usecolortheme{wolverine}
+
+%\setbeamertemplate{footline} % To remove the footer line in all slides uncomment this line
+%\setbeamertemplate{footline}[page number] % To replace the footer line in all slides with a simple slide count uncomment this line
+
+%\setbeamertemplate{navigation symbols}{} % To remove the navigation symbols from the bottom of all slides uncomment this line
+}
+
+\usepackage{graphicx} % Allows including images
+\usepackage{booktabs}
+\usepackage{biblatex} % Allows the use of \toprule, \midrule and \bottomrule in tables
+\usepackage{subcaption}
+\usepackage{csquotes}
+\usepackage{url}
+
+%----------------------------------------------------------------------------------------
+%	TITLE PAGE
+%----------------------------------------------------------------------------------------
+
+\title[Intersection of MD and NMR]{Intersection of multiscale MD and NMR} % The short title appears at the bottom of every slide, the full title is only on the title page
+
+\author{Kevin Sawade} % Your name
+\institute[Universit\"at Konstanz] % Your institution as it will appear on the bottom of every slide, may be shorthand to save space
+{
+Universit\"at Konstanz \\ % Your institution for the title page
+\medskip
+\textit{kevin.sawade@uni-konstanz.de} % Your email address
+}
+\date{\today} % Date, can be changed to a custom date
+
+\begin{document}
+
+\begin{frame}
+\titlepage % Print the title page as the first slide
+\end{frame}
+
+\begin{frame}
+\frametitle{Overview} % Table of contents slide, comment this block out to remove it
+\tableofcontents % Throughout your presentation, if you choose to use \section{} and \subsection{} commands, these will automatically be printed on this slide as an overview of your presentation
+\end{frame}
+
+%----------------------------------------------------------------------------------------
+%	PRESENTATION SLIDES
+%----------------------------------------------------------------------------------------
+
+%------------------------------------------------
+
+\begin{frame}
+\frametitle{Better sections}
+analysis steps: MD, EncoderMap, HDBSCAN, XPLOR
+
+results: best fitting, average of all
+    linear combinations ensemble
+    15 N
+    cluster RMSD matrix
+    average structure
+
+\end{frame}
+
+%------------------------------------------------
+
+%------------------------------------------------
+\section{Data Overview} % Sections can be created in order to organize your presentation into discrete blocks, all sections and subsections are automatically printed in the table of contents as an overview of the talk
+%------------------------------------------------
+
+\subsection{Available data} % A subsection can be created just before a set of slides with a common theme to further break down your presentation into chunks
+
+\begin{frame}
+\frametitle{Data available from previous publications}
+\begin{enumerate}
+    \item All-atom MD simulations using an altered GROMOS54a7 forcefield. Started from extended conformations.
+    \item Coarse-grained MD simulations using MARTINI v2.2 ff.
+    \item All-atom MD simulations started from the 4 lowest sketch-map basins of the CG map using BACKWARD.
+    \item All-atom MD simulations started from 10 random points around the 4 lowest sketch-map basins of the CG map using BACKWARD.
+    \item All-atom MD simulations started from $\mathrm{\chi_3}$-rotamers of extended structures.
+\end{enumerate}
+\end{frame}
+
+%------------------------------------------------
+
+\begin{frame}
+\frametitle{Overview over existing data}
+\begin{figure}
+\begin{subfigure}{.25\textwidth}
+\centering
+\includegraphics[width=\linewidth]{/home/kevin/projects/tobias_schneider/new_images/summary_movie.pdf}
+\end{subfigure}%
+\begin{subfigure}{.75\textwidth}
+\centering
+\includegraphics[width=\linewidth]{/home/kevin/projects/tobias_schneider/new_images/summary_k6_simulation.pdf}
+\end{subfigure}
+\end{figure}
+\end{frame}
+
+%------------------------------------------------
+
+\section{Methods and Results}
+
+\subsection{Analysis Scheme}
+
+\begin{frame}
+\frametitle{Analysis Steps}
+\begin{enumerate}
+\item Extract high-dimensional CVs from all simulation frames.
+\end{enumerate}
+
+\begin{figure}
+    \includegraphics[width=\textwidth]{/home/kevin/projects/tobias_schneider/new_images/summary_RWMD.pdf}
+\end{figure}
+
+%\begin{enumerate}
+%  \setcounter{enumi}{4}
+%  \item fifth element
+%\end{enumerate}
+
+\end{frame}
+
+%------------------------------------------------
+
+\begin{frame}
+\frametitle{Analysis Steps}
+\begin{enumerate}
+  \setcounter{enumi}{1}
+  \item Run EncoderMap with the high-dimensional CVs as input data.
+\end{enumerate}
+    \begin{figure}
+    \includegraphics[width=\textwidth]{/home/kevin/projects/tobias_schneider/new_images/summary_encodermap.pdf}
+\end{figure}
+\end{frame}
+
+%------------------------------------------------
+
+\begin{frame}
+\frametitle{Analysis Steps}
+\begin{enumerate}
+  \setcounter{enumi}{2}
+  \item Cluster data using HDBSCAN.
+\end{enumerate}
+    \begin{figure}
+    \includegraphics[width=\textwidth]{/home/kevin/projects/tobias_schneider/new_images/summary_hdbscan.pdf}
+\end{figure}
+\end{frame}
+
+%------------------------------------------------
+
+\begin{frame}
+\frametitle{Analysis Steps}
+\begin{enumerate}
+\setcounter{enumi}{3}
+\item Write a code library, that poses as an interface between current python packages and XPLOR. (\url{https://github.com/kevinsawade/xplor_functions})
+\item Identify possible settings/arguments and define reasonable defaults (solution concentration, probe radius, etc.)
+\end{enumerate}
+
+\begin{figure}
+\includegraphics[width=\textwidth]{/home/kevin/projects/tobias_schneider/new_images/summary_code.pdf}
+\end{figure}
+
+
+\end{frame}
+
+%------------------------------------------------
+
+\begin{frame}
+\frametitle{Analysis Steps}
+
+\begin{enumerate}
+\setcounter{enumi}{5}
+\item Parallelize the calculations for faster throughput.
+\item Manually parse .psf files to include 15N relaxation data (very time consuming calculations because every pdb file needs to be changed according to psf atom names).
+\end{enumerate}
+
+\end{frame}
+
+%------------------------------------------------
+
+\begin{frame}
+\frametitle{Analysis Steps}
+\begin{enumerate}
+  \setcounter{enumi}{7}
+  \item Normalize sPRE computations.
+\end{enumerate}
+
+\begin{itemize}
+    \item Don't consider the fast-exchanging residues.
+    \item Consider proximal and distal unit separately.
+    \item From all simulation frames calculate the variance of the sPRE values for all residues.
+    \item Take the 10 (not fast exchanging) residues with the smallest variances.
+    \item Calculate the factor $f_i$ from $f_i = \frac{v_{i, exp}}{v_{i, sim}}$ for every of these 10 residues.
+    \item Calculate the mean of these ten factors as $F = \frac{\sum f_i}{N}$
+    \item Use the proximal factor $F$ as a factor to normalize the sPRE values of the proximal unit.
+    \item Use the distal factor to normalize sim. sPRE values of distal unit.
+\end{itemize}
+
+\end{frame}
+
+%------------------------------------------------
+
+\subsection{Results}
+\begin{frame}
+Gorgeous $\lt$3
+\frametitle{sPRE results}
+\begin{figure}
+\includegraphics[width=\textwidth]{/home/kevin/projects/tobias_schneider/new_images/summary_spre.pdf}
+\end{figure}
+
+\end{frame}
+
+%------------------------------------------------
+
+\begin{frame}
+\frametitle{15N results}
+Bad :(
+\begin{figure}
+\includegraphics[width=\textwidth]{/home/kevin/projects/tobias_schneider/new_images/summary_15N_600.pdf}
+\end{figure}
+
+\end{frame}
+
+%------------------------------------------------
+
+\subsection{Cluster Analysis}
+\begin{frame}
+\frametitle{Calculating cluster coefficients}
+Solve:
+\begin{equation*}
+\begin{bmatrix}
+   v_{exp, MET1} \\
+   v_{exp, GLN2} \\
+   \vdots \\
+   v_{exp, GLY76}
+\end{bmatrix}
+    = x_1 \cdot \begin{bmatrix}
+   v_{clu_1, MET1} \\
+   v_{clu_1, GLN2} \\
+   \vdots \\
+   v_{clu_1, GLY76}
+\end{bmatrix}
+    + x_2 \cdot \begin{bmatrix}
+   v_{clu_2, MET1} \\
+   v_{clu_2, GLN2} \\
+   \vdots \\
+   v_{clu_2, GLY76}
+\end{bmatrix}
+    + \ldots + x_n \cdot \begin{bmatrix}
+   v_{clu_n, MET1} \\
+   v_{clu_n, GLN2} \\
+   \vdots \\
+   v_{clu_n, GLY76}
+\end{bmatrix}
+\end{equation*}
+
+    for $\left\{x_1, x_2, ..., x_n \in \mathbb{R} | 0 \leq x_n \leq 1 \right\}$
+
+    and $\sum_i^n x_i \stackrel{!}{=} 1$
+
+\end{frame}
+
+%------------------------------------------------
+
+\begin{frame}
+\frametitle{Single cluster}
+A cluster is extracted from the complete (CG and AA) ensemble but is rendered using only the AA conformations. A cluster is defined by:
+\begin{itemize}
+\item Its contribution to the whole ensemble.
+\item A coefficient from the linear combination of clusters.
+\end{itemize}
+\begin{figure}
+\includegraphics[width=\textwidth]{/home/kevin/projects/tobias_schneider/new_images/summary_single_cluster.png}
+\end{figure}
+
+\end{frame}
+%
+%%------------------------------------------------
+
+\begin{frame}
+    \begin{table}
+        \resizebox{\textwidth}{!}{\begin{tabular}{rllllr}
+\toprule
+ cluster\_num & percent of aa frames & percent of cg frames & percent in full ensemble & coefficient in linear combination &  mean abs difference of cluster mean to exp values \\
+\midrule
+           0 &                 32\%  &                  68\% &                       1\% &                           4.6e-16 &                                               5.00 \\
+           1 &                 74\%  &                  26\% &                       2\% &                          1.29e-01 &                                               4.92 \\
+           2 &                 18\%  &                  82\% &                       1\% &                          7.31e-16 &                                               5.14 \\
+           4 &                  0\%  &                 100\% &                       1\% &                            0.e+00 &                                               5.32 \\
+           5 &                  3\%  &                  97\% &                      12\% &                            0.e+00 &                                               4.97 \\
+           6 &                  0\%  &                 100\% &                       2\% &                          5.84e-01 &                                               5.07 \\
+           7 &                  3\%  &                  97\% &                       1\% &                            0.e+00 &                                               4.98 \\
+           8 &                 17\%  &                  83\% &                       1\% &                            0.e+00 &                                               5.07 \\
+           9 &                  4\%  &                  96\% &                       4\% &                          9.19e-16 &                                               5.10 \\
+          10 &                  1\%  &                  99\% &                       4\% &                          1.87e-16 &                                               5.06 \\
+          11 &                  3\%  &                  97\% &                       0\% &                          2.87e-01 &                                               5.09 \\
+          12 &                  1\%  &                  99\% &                       9\% &                          7.82e-16 &                                               5.15 \\
+\bottomrule
+\end{tabular}}
+        \caption{New values}
+        \end{table}
+\end{frame}
+
+%------------------------------------------------
+
+\begin{frame}
+    \begin{table}
+\resizebox{\textwidth}{!}{\begin{tabular}{rllllr}
+\toprule
+ cluster\_num & percent of aa frames & percent of cg frames & percent in full ensemble & coefficient in linear combination &  mean abs difference of cluster mean to exp values \\
+\midrule
+           0 &                 32\%  &                  68\% &                       1\% &                            0.e+00 &                                               5.00 \\
+           1 &                 74\%  &                  26\% &                       2\% &                            0.e+00 &                                               4.92 \\
+           2 &                 18\%  &                  82\% &                       1\% &                          4.57e-15 &                                               5.14 \\
+           4 &                  0\%  &                 100\% &                       1\% &                          1.72e-14 &                                               5.32 \\
+           5 &                  3\%  &                  97\% &                      12\% &                            0.e+00 &                                               4.97 \\
+           6 &                  0\%  &                 100\% &                       2\% &                          4.27e-01 &                                               5.07 \\
+           7 &                  3\%  &                  97\% &                       1\% &                          6.33e-15 &                                               4.98 \\
+           8 &                 17\%  &                  83\% &                       1\% &                            0.e+00 &                                               5.07 \\
+           9 &                  4\%  &                  96\% &                       4\% &                          8.91e-15 &                                               5.10 \\
+          10 &                  1\%  &                  99\% &                       4\% &                          2.36e-15 &                                               5.06 \\
+          11 &                  3\%  &                  97\% &                       0\% &                            0.e+00 &                                               5.09 \\
+          12 &                  1\%  &                  99\% &                       9\% &                           5.7e-15 &                                               5.15 \\
+\bottomrule
+\end{tabular}}
+        \caption{Analysis of the K6 clusters.}
+        \end{table}
+\begin{table}
+    \resizebox{\textwidth}{!}{\begin{tabular}{rllllr}
+\toprule
+ cluster\_num & percent of aa frames & percent of cg frames & percent in full ensemble & coefficient in linear combination &  mean abs difference of cluster mean to exp values \\
+\midrule
+           0 &                  3\%  &                  97\% &                      17\% &                          4.18e-01 &                                               3.21 \\
+           1 &                  0\%  &                 100\% &                       1\% &                          5.82e-01 &                                               3.15 \\
+           2 &                 15\%  &                  85\% &                       1\% &                          2.98e-14 &                                               3.79 \\
+           3 &                 16\%  &                  84\% &                       4\% &                          3.31e-15 &                                               3.27 \\
+           4 &                  7\%  &                  93\% &                       0\% &                          3.29e-14 &                                               4.28 \\
+           5 &                  2\%  &                  98\% &                       1\% &                          5.44e-17 &                                               3.19 \\
+           6 &                  5\%  &                  95\% &                       3\% &                          1.21e-14 &                                               3.35 \\
+           8 &                  1\%  &                  99\% &                       9\% &                            0.e+00 &                                               3.31 \\
+           9 &                  7\%  &                  93\% &                       1\% &                            0.e+00 &                                               3.24 \\
+          10 &                 13\%  &                  87\% &                       2\% &                            0.e+00 &                                               3.33 \\
+          12 &                  1\%  &                  99\% &                       0\% &                            0.e+00 &                                               3.14 \\
+          13 &                 36\%  &                  64\% &                       0\% &                            0.e+00 &                                               4.77 \\
+          14 &                  5\%  &                  95\% &                       1\% &                          4.12e-14 &                                               4.21 \\
+          15 &                  7\%  &                  93\% &                       1\% &                          2.17e-14 &                                               3.60 \\
+          16 &                  3\%  &                  97\% &                       1\% &                          2.86e-14 &                                               4.82 \\
+          17 &                  2\%  &                  98\% &                       4\% &                          4.56e-15 &                                               3.25 \\
+          18 &                  2\%  &                  98\% &                       0\% &                          2.84e-14 &                                               4.16 \\
+\bottomrule
+\end{tabular}}
+            \caption{Analysis of the K29 clusters.}
+        \end{table}
+\end{frame}
+
+%------------------------------------------------
+
+\begin{frame}
+    \begin{table}
+        \resizebox{\textwidth}{!}{\begin{tabular}{rllllr}
+\toprule
+ cluster\_num & percent of aa frames & percent of cg frames & percent in full ensemble & coefficient in linear combination &  mean abs difference of cluster mean to exp values \\
+\midrule
+           0 &                100\%  &                   0\% &                       1\% &                          7.43e-15 &                                               4.34 \\
+           1 &                100\%  &                   0\% &                       0\% &                            0.e+00 &                                               4.75 \\
+           2 &                100\%  &                   0\% &                       0\% &                          1.30e-15 &                                               4.06 \\
+           3 &                100\%  &                   0\% &                       0\% &                            0.e+00 &                                               4.36 \\
+           4 &                 81\%  &                  19\% &                       1\% &                            0.e+00 &                                               4.38 \\
+           5 &                  1\%  &                  99\% &                       0\% &                            0.e+00 &                                               4.90 \\
+           7 &                  3\%  &                  97\% &                       0\% &                          8.89e-02 &                                               4.41 \\
+           8 &                 18\%  &                  82\% &                       2\% &                            0.e+00 &                                               4.47 \\
+           9 &                  6\%  &                  94\% &                       0\% &                            0.e+00 &                                               4.53 \\
+          10 &                  2\%  &                  98\% &                       3\% &                            0.e+00 &                                               4.36 \\
+          11 &                  3\%  &                  97\% &                       1\% &                            0.e+00 &                                               4.55 \\
+          12 &                 11\%  &                  89\% &                       1\% &                            0.e+00 &                                               4.21 \\
+          13 &                 47\%  &                  53\% &                       3\% &                            0.e+00 &                                               4.16 \\
+          14 &                 34\%  &                  66\% &                       1\% &                            0.e+00 &                                               4.15 \\
+          15 &                  9\%  &                  91\% &                       2\% &                            0.e+00 &                                               4.12 \\
+          16 &                  4\%  &                  96\% &                       2\% &                          8.96e-02 &                                               3.91 \\
+          17 &                  2\%  &                  98\% &                      10\% &                            0.e+00 &                                               4.48 \\
+          18 &                  1\%  &                  99\% &                       1\% &                            0.e+00 &                                               4.47 \\
+          19 &                  1\%  &                  99\% &                       2\% &                          5.54e-02 &                                               4.60 \\
+          20 &                  1\%  &                  99\% &                       8\% &                            0.e+00 &                                               4.45 \\
+          21 &                  2\%  &                  98\% &                       2\% &                            0.e+00 &                                               4.57 \\
+          22 &                  1\%  &                  99\% &                       3\% &                            0.e+00 &                                               4.45 \\
+          23 &                  4\%  &                  96\% &                       0\% &                            0.e+00 &                                               4.05 \\
+\bottomrule
+\end{tabular}}
+        \caption{Analysis of the K33 clusters.}
+        \end{table}
+    \end{frame}
+
+%------------------------------------------------
+
+\begin{frame}
+\frametitle{Is the best fitting structure in a cluster?}
+\begin{figure}
+\includegraphics[width=\textwidth]{/mnt/data/kevin/xplor_analysis_files/best_fitting_in_cluster.png}
+\end{figure}
+
+\end{frame}
+
+%------------------------------------------------
+
+\begin{frame}
+\frametitle{Mean of everything vs linear combination vs exp}
+
+    todo
+
+\end{frame}
+
+%------------------------------------------------
+
+\begin{frame}
+\frametitle{RMSD matrices for clusters}
+\begin{figure}
+\includegraphics[width=\textwidth]{/home/kevin/projects/tobias_schneider/new_images/summary_rmsd_matrices.pdf}
+\end{figure}
+
+\end{frame}
+
+%------------------------------------------------
+
+\begin{frame}
+\frametitle{Multiple clusters}
+Multiple clusters better represent the nature of the sPRE ensemble. A large coefficient in the linear combination does not necessarily mean that this cluster has similar sPRE values as the experiment.
+
+\begin{figure}
+\includegraphics[width=0.8\textwidth]{/mnt/data/kevin/xplor_analysis_files/quality_factors_k6.png}
+\end{figure}
+
+\end{frame}
+
+%------------------------------------------------
+
+\begin{frame}
+\frametitle{There's always one low-score outlier. Good cluster?}
+Todo
+
+\end{frame}
+
+%------------------------------------------------
+
+\subsection{General shape of the diUbi proteins}
+\begin{frame}
+\frametitle{Test tensors of inertia}
+
+\begin{figure}
+\includegraphics[width=\textwidth]{/mnt/data/kevin/xplor_analysis_files/inertia_distribution_k6.png}
+\end{figure}
+
+
+\end{frame}
+
+%------------------------------------------------
+
+\begin{frame}
+\frametitle{Render of a structures within a I\_xx gaussian}
+todo bad image
+\end{frame}
+
+%------------------------------------------------
+
+\begin{frame}
+\frametitle{Surface coverage might also be a possibility.}
+
+\begin{figure}
+\includegraphics[width=\textwidth]{/home/kevin/projects/tobias_schneider/new_images/summary_surface_coverage.pdf}
+\end{figure}
+
+\end{frame}
+
+%------------------------------------------------
+
+\begin{frame}
+\frametitle{Better: pseudo-dihedral and cog-distance}
+    \begin{figure}
+    \includegraphics[width=\textwidth]{/home/kevin/projects/tobias_schneider/new_images/summary_pseudo_torsions.pdf}
+\end{figure}
+
+\end{frame}
+
+%------------------------------------------------
+
+
+\begin{frame}
+\frametitle{General shape of K6}
+    \begin{figure}
+    \includegraphics[height=\textheight]{/home/kevin/projects/tobias_schneider/new_images/union_every_4_steps_k6_2.png}
+\end{figure}
+
+\end{frame}
+
+%------------------------------------------------
+
+
+\begin{frame}
+\frametitle{General shape of K29}
+    \begin{figure}
+    \includegraphics[width=\textwidth]{/home/kevin/projects/tobias_schneider/new_images/union_every_4_steps_k29_0.png}
+\end{figure}
+
+\end{frame}
+
+%------------------------------------------------
+
+
+\begin{frame}
+\frametitle{General shape of K30}
+    \begin{figure}
+    \includegraphics[width=\textwidth]{/home/kevin/projects/tobias_schneider/new_images/union_every_4_steps_k33_3.png}
+\end{figure}
+
+\end{frame}
+
+%------------------------------------------------
+
+\begin{frame}
+\Huge{\centerline{The End}}
+\end{frame}
+
+%----------------------------------------------------------------------------------------
+
+\end{document}

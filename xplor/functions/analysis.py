@@ -341,7 +341,8 @@ def center_ref_and_load(overwrite: bool = False) -> Tuple[mdtraj.Trajectory, np.
 def add_reference_to_map(ax, step: int = 5, rotate: bool = False,
                          pole_longitude: float = 180.0,
                          pole_latitude: float = 90.0,
-                         use_adjust_text: bool = False) -> matplotlib.axes.Axes:
+                         use_adjust_text: bool = False,
+                         return_plot: bool = False) -> matplotlib.axes.Axes:
     """"""
     traj, idx, labels = center_ref_and_load()
     scatter = traj.xyz[0, idx]
@@ -352,7 +353,7 @@ def add_reference_to_map(ax, step: int = 5, rotate: bool = False,
         transform = ccrs.RotatedGeodetic(pole_longitude=pole_longitude, pole_latitude=pole_latitude)
     else:
         transform = ccrs.Geodetic()
-    ax.plot(lons, lats, marker='o', transform=transform)
+    plot = ax.plot(lons, lats, marker='o', transform=transform)
     ax.set_global()
     if not use_adjust_text:
         for i, label in enumerate(labels):
@@ -366,6 +367,8 @@ def add_reference_to_map(ax, step: int = 5, rotate: bool = False,
                 txt = ax.text(lons[i], lats[i], label, transform=transform._as_mpl_transform(ax))
                 texts.append(txt)
         adjust_text(texts, only_move={'points':'y', 'texts':'y'}, arrowprops=dict(arrowstyle="->", color=(0, 0, 0, 0), lw=0.5))
+    if return_plot:
+        return plot, ax
     return ax
 
 
