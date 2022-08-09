@@ -6,6 +6,7 @@ import MDAnalysis as mda
 import mdtraj as md
 import glob, os
 import parmed as pmd
+from pathlib import import Path
 
 # %%
 test = 'tmp_traj_nojump_frame_95_hash_481079684092461366.psf'
@@ -13,21 +14,21 @@ print(test.split('_')[:5])
 
 
 # %% List dirs
-# glob.glob('/home/andrejb/Research/SIMS/2017_04_27_G_2ub_*/')
-os.listdir('/home/andrejb/Research/SIMS/2017_04_27_G_2ub_m1_01_01/')
+# glob.glob(f"{Path(xplor.__file__).parent.parent}/molsim/2017_04_27_G_2ub_*/")
+os.listdir(f"{Path(xplor.__file__).parent.parent}/molsim/2017_04_27_G_2ub_m1_01_01/")
 
 
 # %% Test psf with M1 linked diUBQ
-pdb = '/home/andrejb/Research/SIMS/2017_04_27_G_2ub_m1_01_01/start.pdb'
-top = '/home/andrejb/Research/SIMS/2017_04_27_G_2ub_m1_01_01/traj.top'
-xtc = '/home/andrejb/Research/SIMS/2017_04_27_G_2ub_m1_01_01/traj_nojump.xtc'
+pdb = f"{Path(xplor.__file__).parent.parent}/molsim/2017_04_27_G_2ub_m1_01_01/start.pdb"
+top = f"{Path(xplor.__file__).parent.parent}/molsim/2017_04_27_G_2ub_m1_01_01/traj.top"
+xtc = f"{Path(xplor.__file__).parent.parent}/molsim/2017_04_27_G_2ub_m1_01_01/traj_nojump.xtc"
 
 xplor.functions.test_conect(xtc, pdb, remove_after=False)
 
 # %% try some more stuff anew
-pdb = '/home/andrejb/Research/SIMS/2017_04_27_G_2ub_k6_01_01/start.pdb'
-top = '/home/andrejb/Research/SIMS/2017_04_27_G_2ub_k6_01_01/traj.top'
-xtc = '/home/andrejb/Research/SIMS/2017_04_27_G_2ub_k6_01_01/traj_nojump.xtc'
+pdb = f"{Path(xplor.__file__).parent.parent}/molsim/2017_04_27_G_2ub_k6_01_01/start.pdb"
+top = f"{Path(xplor.__file__).parent.parent}/molsim/2017_04_27_G_2ub_k6_01_01/traj.top"
+xtc = f"{Path(xplor.__file__).parent.parent}/molsim/2017_04_27_G_2ub_k6_01_01/traj_nojump.xtc"
 
 xplor.functions.test_conect(xtc, pdb, remove_after=True, ast_print=0)
 

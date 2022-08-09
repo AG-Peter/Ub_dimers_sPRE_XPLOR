@@ -1,8 +1,9 @@
 import numpy as np
 import hdbscan
 import encodermap as em
+import xplor
 ubq_site = 'k33'
-e_map = em.EncoderMap.from_checkpoint(f'/mnt/data/kevin/xplor_analysis_files/runs/{ubq_site}/production_run_tf2/saved_model_100000.model*')
+e_map = em.EncoderMap.from_checkpoint(f"{Path(xplor.__file__).parent.parent}/xplor_analysis_files/runs/{ubq_site}/production_run_tf2/saved_model_100000.model*")
 highd = np.vstack([np.load(f'highd_rwmd_aa_{ubq_site}.npy'), np.load(f'highd_rwmd_cg_{ubq_site}.npy')])
 lowd = e_map.encode(highd)
 clusterer = hdbscan.HDBSCAN(min_cluster_size=2500, cluster_selection_method='leaf')

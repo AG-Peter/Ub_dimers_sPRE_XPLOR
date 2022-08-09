@@ -21,9 +21,6 @@ setup(name='xplor_functions',
           "Operating System :: OS Independent",
       ],
       scripts=['xplor/scripts/xplor_single_struct.py'],
-      options={'build_scripts':
-        {'executable': '/home/kevin/software/xplor-nih/xplor-nih-3.2/bin/pyXplor'}
-      },
       include_package_data=True,
       package_data = {
         'xplor': ['data/*']
