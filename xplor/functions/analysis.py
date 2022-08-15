@@ -13,6 +13,7 @@ import mdtraj as md
 import numpy as np
 import pandas as pd
 import sklearn
+from pathlib import Path
 from joblib import Parallel, delayed
 from multiprocessing import cpu_count as mp_cpu_count
 from scipy.stats import norm as scipy_norm

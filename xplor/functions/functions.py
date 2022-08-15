@@ -695,6 +695,8 @@ def parallel_xplor(ubq_sites, simdir=f"{Path(get_xplor_init()).parent.parent}/mo
     elif n_threads == 'max':
         n_threads = multiprocessing.cpu_count()
 
+    Path(df_outdir).mkdir(parents=True, exist_ok=True)
+
     if np.any(fix_isopeptides):
         print("Using procedure from `check_conect` to fix isopeptide bonds.")
 
@@ -721,7 +723,7 @@ def parallel_xplor(ubq_sites, simdir=f"{Path(get_xplor_init()).parent.parent}/mo
                 top_file = dir_ + '/init.gro'
             with Capturing() as output:
                 top_aa = CustomGromacsTopFile(f"{Path(get_xplor_init()).parent.parent}/topologies/diUBQ_{ubq_site.upper()}/system.top",
-                                              includeDir={Path(get_xplor_init()).parent.parent}/topologies/forcefields)
+                                              includeDir=f"{Path(get_xplor_init()).parent.parent}/topologies/forcefields")
             traj = md.load(traj_file, top=top_file)
             traj.top = md.Topology.from_openmm(top_aa.topology)
 

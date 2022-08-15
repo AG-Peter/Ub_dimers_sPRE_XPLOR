@@ -57,13 +57,18 @@ import os
 os.environ['PDB2PSF_EXECUTABLE'] = '/path/to/pdb2psf/executable'
 ```
 
+# Run this Repo
+
 ## Analysis pipeline
 
-The Analysis pipeline starts with MD simulations. A small subset is available and the full set can be made available upon request. A simulation is defined by a `.pdb` (topology) and `.xtc` (trajectory) file. Both of these files should reside in their own directory. The monolithic function `xplor.functions.parallel_xplor()` takes the argument `simdir` which should point to the directory containing all the other simulation directories.
+The Analysis pipeline starts with MD simulations. A small subset is available and the full set can be made available upon request. A simulation is defined by a `.pdb` (topology) and `.xtc` (trajectory) file. Both of these files should reside in their own directory. The monolithic function `xplor.functions.parallel_xplor()` takes the argument `simdir` which should point to the directory containing all the other simulation directories (the determination of this directory is somewhat smart and uses the location from which xplor was installed. eg. /home/user/git/xplor/molsim or /home/user/python_packages/xplor/molsim). It is also recommended to choose a very large subsample (10 000 or even more, otherwise your PC will be busy for quite some time).
 
 ```python
-xplor.functions.parallel_xplor(['k6', 'k29', 'k33'], df_outdir='.', suffix='_df.csv', parallel=True)
+df = xplor.functions.parallel_xplor(['k6', 'k29', 'k33'], subsample=10000, parallel=True)
 ```
+
+On a machine with a 4-core CPU this command took 5 minutes, 30 seconds to complete. The resulting dataframe can be used to work through the analysis and image creation in the jupyter notebook `development/analysis.ipynb`.
+
 Starting from MD simulations of the three ubiquitylation sites (`K6`, `K29`, and `K33`).
 
 The analysis of the simulation data was done with the 
